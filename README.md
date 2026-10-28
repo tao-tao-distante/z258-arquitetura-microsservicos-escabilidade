@@ -139,12 +139,12 @@ Com `.env` configurado:
 
 ```sh
 docker compose config -q
-docker run --rm -v "$PWD/tempo.yaml:/etc/tempo.yaml:ro" \
+docker run --rm -v "$PWD/provisioning/tempo/tempo.yaml:/etc/tempo.yaml:ro" \
   grafana/tempo:3.1.1 -config.file=/etc/tempo.yaml -config.verify=true
-docker run --rm -v "$PWD/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+docker run --rm -v "$PWD/provisioning/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
   otel/opentelemetry-collector-contrib:0.164.0 \
   validate --config=/etc/otelcol-contrib/config.yaml
-docker run --rm -v "$PWD/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+docker run --rm -v "$PWD/provisioning/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
   --entrypoint /bin/promtool prom/prometheus:v3.15.1 \
   check config /etc/prometheus/prometheus.yml
 ```

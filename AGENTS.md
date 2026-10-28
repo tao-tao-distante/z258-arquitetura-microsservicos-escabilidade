@@ -45,7 +45,7 @@ Este projeto utiliza as seguintes skills (conforme skills-list.txt):
 ### Mensageria e Persistência
 - **RabbitMQ** (5672:5672, 15672:15672): Broker AMQP com DLQ. Healthcheck `rabbitmq-diagnostics -q ping`.
 - **Topologia AMQP**: exchange `tasks` (topic), fila `task.events`, routing key `task.created`, exchange `tasks.dlx` (fanout) e DLQ `task.events.dlq`.
-- **service-task** publica e **service-notification** consome. Ambos declaram a topologia de forma idempotente no startup; o consumidor não depende da ordem de subida dos serviços.
+- **service-task** publica e **service-notification** consome. Ambos declaram a topologia via `shared/broker` de forma idempotente no startup; o consumidor não depende da ordem de subida dos serviços.
 - **PostgreSQL 15**: Database-per-service (ADR-0001). `postgres-identity` e `postgres-task` com healthcheck `pg_isready`.
 
 ### Endpoints Implementados
@@ -54,10 +54,12 @@ Este projeto utiliza as seguintes skills (conforme skills-list.txt):
 - **service-notification**: `GET /health`; consumo assíncrono de `task.events` com Ack/Nack e DLQ.
 
 ### Observabilidade
-- **otel-collector**: Recebe métricas e traces
-- **prometheus**: Coleta métricas
-- **tempo**: Armazenamento de traces distribuídos
-- **grafana**: Visualização (3000:3000)
+- **otel-collector**: Recebe métricas e traces via OTLP gRPC (4317). Config em `provisioning/otel-collector/config.yaml`.
+- **prometheus**: Coleta métricas. Config em `provisioning/prometheus/prometheus.yml`.
+- **tempo**: Armazenamento de traces distribuídos. Config em `provisioning/tempo/tempo.yaml`.
+- **grafana**: Visualização (3000:3000). Datasources em `provisioning/grafana/datasources/datasources.yml`.
+- Os três serviços enviam telemetria para `http://otel-collector:4317` via `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- Validar configs com `docker compose --env-file .env.example config -q` e os comandos de validação do `README.md`.
 
 ## Padrões de Código Go
 
@@ -70,9 +72,9 @@ Este projeto utiliza as seguintes skills (conforme skills-list.txt):
 - **Health Check**: Endpoint `GET /health` retornando 200 OK com status de dependências (DB/RabbitMQ).
 
 ### Docker
-- **Multi-stage builds**: Go (golang:1.23-alpine -> alpine:3.20, `CGO_ENABLED=0`), Angular (node:20-alpine -> nginx:alpine).
+- **Multi-stage builds**: Go (golang:1.23-alpine -> alpine:3.20, `CGO_ENABLED=0`), Angular (node:20.19-alpine -> nginx:1.31.6-alpine).
 - Os quatro `go.mod` (três serviços + `shared/`) declaram `go 1.23`. Manter dependências compatíveis com Go 1.23: `golang.org/x/crypto v0.41.0` é o mínimo exigido pelo `grpc v1.75` e declara `go 1.23`; não subir para versões que exijam Go mais novo.
-- Código comum entre serviços vive em `shared/` e é consumido via `replace ../shared`. O context de build Docker é a raiz do repositório (ver `.dockerignore`).
+- Código comum entre serviços vive em `shared/` (`auth`, `broker`, `correlation`, `httpx`, `logger`, `middleware`, `telemetry`) e é consumido via `replace ../shared`. O context de build Docker é a raiz do repositório (ver `.dockerignore`).
 - Validar com `docker compose build` e `docker compose config -q`.
 
 ## Fluxo de Desenvolvimento em TDD
@@ -86,7 +88,7 @@ Este projeto utiliza as seguintes skills (conforme skills-list.txt):
 
 ## Metas de Qualidade
 - **Cobertura mínima**: >= 95% em todos os pacotes Go (unitários e integração)
-- Cobertura atual (sem `-race`): `shared` 97.3%, `service-identity` 98.7%, `service-task` 98.2%, `service-notification` 95.4%.
+- Cobertura atual (sem `-race`): `shared` 97.7%, `service-identity` 98.6%, `service-task` 98.3%, `service-notification` 95.3%.
 - Validar com: `go test -v -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`
 - Frontend: `npm run build` com `strict` e `strictTemplates`; não commitar `node_modules/`, `dist/`, `.angular/` ou `coverage.out`.
 - Smoke test manual: subir `docker compose up -d`, registrar usuário, criar/listar tarefa com JWT e confirmar log `notification_received` no `service-notification` com o `correlation_id` do evento.
@@ -104,13 +106,17 @@ Seguir **Conventional Commits**:
 
 ## Comandos de Desenvolvimento
 ```sh
-# Backend
-cd service-identity && go test ./...
-cd service-task && go test ./...
-cd service-notification && go test ./...
+# Backend (a partir da raiz)
+(cd shared && go test -race ./...)
+(cd service-identity && go test -race ./...)
+(cd service-task && go test -race ./...)
+(cd service-notification && go test -race ./...)
 
-# Cobertura
+# Cobertura (executar dentro de cada módulo)
 go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
+
+# Infraestrutura
+docker compose --env-file .env.example config -q
 
 # Frontend
 cd frontend && npm install && npm run build
