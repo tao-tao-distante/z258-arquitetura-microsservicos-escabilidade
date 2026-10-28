@@ -1,6 +1,14 @@
 # 0010 - Padronização de Arquitetura de Pastas e Layout do Projeto Angular Frontend
 
-## Context and Problem Statement
+## Status
+
+Aceito.
+
+## Data
+
+2026-10-28
+
+## Contexto e Problema
 
 Para a interface SPA da aplicação Task Manager, é necessário estabelecer uma estrutura de arquivos e diretórios que
 garanta escalabilidade, alta manutenibilidade e separação clara de responsabilidades. Projetos Angular sem uma
@@ -8,7 +16,7 @@ arquitetura orientada a domínios costumam concentrar componentes em pastas gen�
 misturando lógicas globais (como autenticação e interceptores) com lógicas específicas de negócio, além de acumular
 acoplamento entre telas.
 
-## Decision Drivers
+## Fatores de Decisão
 
 * **Angular Moderno (Standalone Architecture):** Adoção das melhores práticas do Angular recente, priorizando Standalone
   Components, Signals para reatividade local e eliminação do boilerplate de `NgModules`.
@@ -22,15 +30,15 @@ acoplamento entre telas.
   chamadas de API) de componentes puramente visuais (*Dumb/Presentational Components* - recebem `@Input` e emitem
   `@Output`).
 
-## Considered Options
+## Opções Consideradas
 
 * **Opção 1:** Arquitetura Plana/Por Tipo (`components/`, `services/`, `models/` na raiz de `src/app`).
 * **Opção 2:** Arquitetura Tradicional baseada em `NgModules` por funcionalidade (`AuthModule`, `TasksModule`).
 * **Opção 3:** Arquitetura Modular *Feature-First* baseada em Standalone Components (`core/`, `shared/`, `features/`).
 
-## Decision Outcome
+## Resultado da Decisão
 
-Chosen option: "**Opção 3: Arquitetura Modular Feature-First baseada em Standalone Components**", pois alinha o projeto
+Opção escolhida: "**Opção 3: Arquitetura Modular Feature-First baseada em Standalone Components**", pois alinha o projeto
 às recomendações oficiais modernas do Angular, simplifica o carregamento sob demanda (*lazy loading*) e garante
 isolamento entre telas.
 
@@ -76,3 +84,17 @@ frontend/
 ├── Dockerfile                          # Multi-Stage Build (Node.js -> NGINX)
 ├── angular.json
 └── package.json
+```
+
+### Consequências
+
+* Features isoladas por domínio, com `core/` e `shared/` livres de regra de negócio.
+* Standalone Components e Signals dispensam `NgModules`, reduzindo boilerplate.
+* Lazy loading por feature limita o bundle inicial.
+* Componentes dumb permanecem reutilizáveis; páginas smart concentram estado e chamadas HTTP.
+
+### Confirmação
+
+* `npm run build` passa com `strict` e `strictTemplates`.
+* `grep -R NgModule src` não encontra módulos.
+* A estrutura de pastas e os interceptores conferem com a árvore acima.

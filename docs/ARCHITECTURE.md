@@ -66,6 +66,11 @@ internas do Collector, não métricas de negócio ou de runtime dos serviços.
 - Somente o frontend publica porta em todas as interfaces. APIs e consoles administrativos usam loopback.
 - Bancos e serviços de telemetria não publicam portas no host.
 - Contexts Docker excluem segredos e artefatos locais.
+- `/register` e `/login` limitam 10 requisições por minuto por IP e devolvem `429` com `Retry-After: 60`.
+- Payloads são limitados a 16 KiB em Identity e 1 MiB em Tasks; excesso recebe `413`.
+
+O frontend mantém o JWT em `localStorage` enquanto o backend não oferecer cookie `HttpOnly`; riscos e mitigações estão em
+[`frontend/SECURITY.md`](../frontend/SECURITY.md).
 
 O transporte interno usa HTTP/AMQP sem TLS porque esta é uma stack local de desenvolvimento. Produção exige secrets
 manager, TLS, backend de objetos para Tempo, autenticação dos endpoints de telemetria e política de rede do orquestrador.

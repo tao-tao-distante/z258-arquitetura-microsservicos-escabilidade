@@ -16,20 +16,24 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
+// Channel abstrai o canal AMQP usado pelo serviço.
 type Channel interface {
 	handler.Channel
 	Close() error
 	IsClosed() bool
 }
 
+// Conn abstrai a conexão AMQP usada na inicialização.
 type Conn interface {
 	Channel() (Channel, error)
 	Close() error
 	IsClosed() bool
 }
 
+// Dialer abre uma conexão AMQP a partir da URL informada.
 type Dialer func(url string) (Conn, error)
 
+// Run conecta ao RabbitMQ, inicia o consumidor e serve o endpoint de saúde.
 func Run(ctx context.Context, cfg config.Config, log *slog.Logger, dial Dialer) error {
 	shutdownTelemetry, _, err := telemetry.Setup(ctx, cfg.OTLPEndpoint, "service-notification")
 	if err != nil {
@@ -131,6 +135,7 @@ func newHealth(conn Conn, ch Channel, consumer *handler.Consumer) *handler.Healt
 	})
 }
 
+// NewServer cria o servidor HTTP com timeouts explícitos.
 func NewServer(port string, h http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              ":" + port,
@@ -142,6 +147,7 @@ func NewServer(port string, h http.Handler) *http.Server {
 	}
 }
 
+// Shutdown encerra o servidor HTTP com timeout de 10 segundos.
 func Shutdown(srv *http.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

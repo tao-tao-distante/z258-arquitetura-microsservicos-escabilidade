@@ -23,24 +23,29 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// PrefetchCount limita mensagens não confirmadas entregues ao consumidor.
 const PrefetchCount = 10
 
+// Channel abstrai o canal AMQP necessário ao consumo.
 type Channel interface {
 	broker.Channel
 	Qos(prefetchCount, prefetchSize int, global bool) error
 	Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp.Table) (<-chan amqp.Delivery, error)
 }
 
+// Consumer consome eventos task.created da fila de notificações.
 type Consumer struct {
 	ch     Channel
 	log    *slog.Logger
 	active atomic.Bool
 }
 
+// NewConsumer cria o consumidor com o canal e o logger informados.
 func NewConsumer(ch Channel, log *slog.Logger) *Consumer {
 	return &Consumer{ch: ch, log: log}
 }
 
+// Start declara a topologia, aplica prefetch e consome até o contexto ser cancelado.
 func (c *Consumer) Start(ctx context.Context) error {
 	if err := broker.DeclareTopology(c.ch); err != nil {
 		return fmt.Errorf("declare topology: %w", err)
@@ -69,6 +74,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 	}
 }
 
+// Active informa se o consumo está em execução.
 func (c *Consumer) Active() bool {
 	return c.active.Load()
 }
@@ -120,6 +126,7 @@ func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 
 type amqpHeaderCarrier amqp.Table
 
+// Get busca a chave no header AMQP sem diferenciar maiúsculas de minúsculas.
 func (c amqpHeaderCarrier) Get(key string) string {
 	for header, value := range c {
 		if strings.EqualFold(header, key) {
@@ -130,8 +137,10 @@ func (c amqpHeaderCarrier) Get(key string) string {
 	return ""
 }
 
+// Set grava um valor textual no header AMQP.
 func (c amqpHeaderCarrier) Set(key, value string) { c[key] = value }
 
+// Keys lista as chaves presentes no header AMQP.
 func (c amqpHeaderCarrier) Keys() []string {
 	keys := make([]string, 0, len(c))
 	for key := range c {
@@ -142,14 +151,17 @@ func (c amqpHeaderCarrier) Keys() []string {
 
 var _ propagation.TextMapCarrier = amqpHeaderCarrier{}
 
+// Health expõe o endpoint de saúde do service-notification.
 type Health struct {
 	deps map[string]func(context.Context) error
 }
 
+// NewHealth cria o handler de saúde com as checagens de dependência.
 func NewHealth(deps map[string]func(context.Context) error) *Health {
 	return &Health{deps: deps}
 }
 
+// Health responde o estado do processo e do RabbitMQ.
 func (h *Health) Health(w http.ResponseWriter, r *http.Request) {
 	httpx.Health(w, r, h.deps, nil)
 }

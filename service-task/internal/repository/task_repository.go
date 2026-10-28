@@ -13,6 +13,7 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
 )
 
+// TaskRepository define a persistência de tarefas e do outbox.
 type TaskRepository interface {
 	Create(ctx context.Context, task *domain.Task) (*domain.Task, error)
 	List(ctx context.Context, userID int64, limit, offset int) ([]domain.Task, error)
@@ -21,10 +22,12 @@ type TaskRepository interface {
 	Delete(ctx context.Context, id, userID int64) error
 }
 
+// PostgresTaskRepository implementa TaskRepository com PostgreSQL.
 type PostgresTaskRepository struct {
 	db *sql.DB
 }
 
+// NewPostgresTaskRepository cria o repositório com o pool informado.
 func NewPostgresTaskRepository(db *sql.DB) *PostgresTaskRepository {
 	return &PostgresTaskRepository{db: db}
 }
@@ -39,6 +42,7 @@ func scanTask(row interface{ Scan(...any) error }) (*domain.Task, error) {
 	return &t, nil
 }
 
+// Create grava a tarefa e o evento task.created no outbox na mesma transação.
 func (r *PostgresTaskRepository) Create(ctx context.Context, task *domain.Task) (*domain.Task, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -69,6 +73,7 @@ func (r *PostgresTaskRepository) Create(ctx context.Context, task *domain.Task) 
 	return t, nil
 }
 
+// List devolve as tarefas do usuário com paginação.
 func (r *PostgresTaskRepository) List(ctx context.Context, userID int64, limit, offset int) ([]domain.Task, error) {
 	const query = `SELECT ` + columns + ` FROM tasks WHERE user_id = $1 ORDER BY id DESC LIMIT $2 OFFSET $3`
 	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
@@ -91,6 +96,7 @@ func (r *PostgresTaskRepository) List(ctx context.Context, userID int64, limit, 
 	return tasks, nil
 }
 
+// Get busca uma tarefa pelo ID e pelo usuário.
 func (r *PostgresTaskRepository) Get(ctx context.Context, id, userID int64) (*domain.Task, error) {
 	const query = `SELECT ` + columns + ` FROM tasks WHERE id = $1 AND user_id = $2`
 	row := r.db.QueryRowContext(ctx, query, id, userID)
@@ -104,6 +110,7 @@ func (r *PostgresTaskRepository) Get(ctx context.Context, id, userID int64) (*do
 	return t, nil
 }
 
+// Update atualiza a tarefa do usuário e devolve o registro atualizado.
 func (r *PostgresTaskRepository) Update(ctx context.Context, task *domain.Task) (*domain.Task, error) {
 	const query = `UPDATE tasks SET title = $2, description = $3, status = $4, updated_at = NOW()
 		WHERE id = $1 AND user_id = $5 RETURNING ` + columns
@@ -118,6 +125,7 @@ func (r *PostgresTaskRepository) Update(ctx context.Context, task *domain.Task) 
 	return t, nil
 }
 
+// Delete remove a tarefa do usuário e devolve ErrNotFound quando ausente.
 func (r *PostgresTaskRepository) Delete(ctx context.Context, id, userID int64) error {
 	const query = `DELETE FROM tasks WHERE id = $1 AND user_id = $2`
 	res, err := r.db.ExecContext(ctx, query, id, userID)
@@ -134,6 +142,7 @@ func (r *PostgresTaskRepository) Delete(ctx context.Context, id, userID int64) e
 	return nil
 }
 
+// Migrate cria as tabelas tasks e task_outbox quando não existem.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	const ddl = `CREATE TABLE IF NOT EXISTS tasks (
 		id BIGSERIAL PRIMARY KEY,
@@ -164,6 +173,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// OutboxEvent representa um evento pendente de publicação.
 type OutboxEvent struct {
 	ID            int64
 	EventID       string
@@ -173,6 +183,7 @@ type OutboxEvent struct {
 	Attempts      int
 }
 
+// ClaimOutbox reivindica um evento pendente com lease de 30 segundos.
 func (r *PostgresTaskRepository) ClaimOutbox(ctx context.Context) (*OutboxEvent, error) {
 	const query = `WITH pending AS (
 		SELECT id FROM task_outbox WHERE sent_at IS NULL AND available_at <= NOW()
@@ -191,6 +202,7 @@ func (r *PostgresTaskRepository) ClaimOutbox(ctx context.Context) (*OutboxEvent,
 	return &event, nil
 }
 
+// MarkOutboxSent registra o evento como publicado.
 func (r *PostgresTaskRepository) MarkOutboxSent(ctx context.Context, id int64) error {
 	if _, err := r.db.ExecContext(ctx, `UPDATE task_outbox SET sent_at = NOW() WHERE id = $1`, id); err != nil {
 		return fmt.Errorf("mark outbox sent: %w", err)
@@ -198,6 +210,7 @@ func (r *PostgresTaskRepository) MarkOutboxSent(ctx context.Context, id int64) e
 	return nil
 }
 
+// RetryOutbox agenda nova tentativa com backoff exponencial limitado a 64 segundos.
 func (r *PostgresTaskRepository) RetryOutbox(ctx context.Context, id int64, attempts int) error {
 	delay := time.Second << min(attempts-1, 6)
 	if _, err := r.db.ExecContext(ctx, `UPDATE task_outbox SET available_at = $2 WHERE id = $1`, id, time.Now().Add(delay)); err != nil {

@@ -4,12 +4,16 @@
 
 Aceito.
 
-## Context
+## Data
+
+2026-10-28
+
+## Contexto
 
 A stack local usava tags flutuantes, credenciais conhecidas, rede implícita única, portas desnecessariamente públicas e
 dados não persistentes para mensageria/observabilidade. Grafana também exigia configuração manual de datasources.
 
-## Decision
+## Decisão
 
 - Fixar versões completas das imagens declaradas no Compose.
 - Exigir segredos por interpolação `${VAR:?mensagem}` e fornecer apenas `.env.example` sem credenciais utilizáveis.
@@ -23,7 +27,7 @@ dados não persistentes para mensageria/observabilidade. Grafana também exigia 
 - Provisionar Prometheus e Tempo como datasources Grafana.
 - Usar Tempo monolítico 3.1.1 com backend local e retenção de 24 horas para desenvolvimento.
 
-## Consequences
+## Consequências
 
 - Good: builds locais ficam reproduzíveis no nível das imagens de infraestrutura do Compose.
 - Good: falhas de configuração e ausência de segredos aparecem antes da inicialização.
@@ -33,7 +37,7 @@ dados não persistentes para mensageria/observabilidade. Grafana também exigia 
 - Bad: backend local do Tempo é adequado apenas para uma instância e desenvolvimento.
 - Bad: versões e correções de segurança precisam de atualização explícita.
 
-## Confirmation
+## Confirmação
 
 Executar as validações do README, inspecionar `docker compose config` e confirmar saúde com `docker compose ps`. Verificar
 que somente `8081` aceita conexões externas e que `8082`-`8084`, `3000` e `15672` estão em `127.0.0.1`.

@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// Erros de domínio retornados pelo service-identity.
 var (
 	ErrNotFound           = errors.New("not found")
 	ErrEmailTaken         = errors.New("email already taken")
@@ -12,6 +13,7 @@ var (
 	ErrInvalidInput       = errors.New("invalid input")
 )
 
+// User representa um usuário persistido.
 type User struct {
 	ID           int64
 	Email        string

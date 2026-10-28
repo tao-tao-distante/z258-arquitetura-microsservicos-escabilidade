@@ -72,6 +72,8 @@ docker compose down -v    # remove dados locais persistidos
 
 Cadastro/login: `{"email":"user@example.com","password":"secret123"}`.
 
+`POST /register` e `POST /login` aceitam 10 requisições por minuto por IP; excedentes recebem `429` com `Retry-After: 60`.
+
 ### Tasks
 
 Rotas de tarefas exigem `Authorization: Bearer <jwt>`.
@@ -94,6 +96,19 @@ Evento JSON inválido recebe `Nack` sem requeue e segue para `task.events.dlq` p
 faz retry próprio; o publisher usa outbox transacional com retry/backoff e entrega at-least-once. Não há entrega de
 notificação externa implementada.
 
+### Erros
+
+| Status | Quando                                                                                 |
+|--------|----------------------------------------------------------------------------------------|
+| `400`  | JSON inválido, campo desconhecido, paginação inválida, `id` inválido ou título ausente |
+| `401`  | JWT ausente, inválido ou expirado; credenciais incorretas no login                     |
+| `404`  | tarefa não encontrada ou pertencente a outro usuário                                   |
+| `409`  | e-mail já cadastrado em `/register`                                                    |
+| `413`  | corpo acima do limite: 16 KiB em Identity, 1 MiB em Tasks                              |
+| `429`  | limite de 10 requisições por minuto por IP em `/register` e `/login`                   |
+| `500`  | erro interno não classificado                                                          |
+| `503`  | dependência indisponível retornada por `/health`                                       |
+
 ## Correlação e telemetria
 
 - `x-correlation-id` é um identificador de aplicação para logs e eventos, não um header W3C Trace Context.
@@ -111,6 +126,8 @@ notificação externa implementada.
 PostgreSQL, RabbitMQ, Tempo, Prometheus e Grafana usam volumes nomeados. Redes internas separam dados de Identity, dados
 de Task, mensageria e telemetria. A rede `edge` contém apenas frontend e APIs. Cada serviço acessa somente dependências
 necessárias ao seu papel.
+
+O armazenamento do JWT no frontend e suas mitigações estão em [frontend/SECURITY.md](frontend/SECURITY.md).
 
 ## Desenvolvimento
 

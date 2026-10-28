@@ -8,16 +8,19 @@ import (
 	"net/http"
 )
 
+// WriteJSON escreve payload como JSON com o status informado.
 func WriteJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
+// WriteError escreve um erro JSON com o status informado.
 func WriteError(w http.ResponseWriter, status int, msg string) {
 	WriteJSON(w, status, map[string]string{"error": msg})
 }
 
+// DecodeJSON lê um único objeto JSON, rejeita campos desconhecidos e limita o corpo a maxBytes.
 func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 	decoder := json.NewDecoder(r.Body)
@@ -31,6 +34,7 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any, maxBytes int64)
 	return nil
 }
 
+// Health executa as checagens de dependência e responde 200 ou 503.
 func Health(
 	w http.ResponseWriter,
 	r *http.Request,

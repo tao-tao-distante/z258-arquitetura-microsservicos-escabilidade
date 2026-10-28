@@ -12,6 +12,7 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
 )
 
+// HeaderCorrelationID é o cabeçalho HTTP que transporta o correlation ID.
 const HeaderCorrelationID = "x-correlation-id"
 
 type statusRecorder struct {
@@ -19,11 +20,13 @@ type statusRecorder struct {
 	status int
 }
 
+// WriteHeader registra o status e encaminha a chamada ao ResponseWriter.
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
 }
 
+// Correlation captura ou gera o x-correlation-id e o propaga no contexto e na resposta.
 func Correlation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(HeaderCorrelationID)
@@ -39,6 +42,7 @@ func Correlation(next http.Handler) http.Handler {
 	})
 }
 
+// CorrelationUUID aceita apenas UUID válido e gera um novo quando ausente ou inválido.
 func CorrelationUUID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(HeaderCorrelationID)
@@ -51,6 +55,7 @@ func CorrelationUUID(next http.Handler) http.Handler {
 	})
 }
 
+// Logging registra método, rota, status e latência de cada requisição.
 func Logging(l *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +78,7 @@ type rateWindow struct {
 	count   int
 }
 
+// RateLimiter limita requisições por cliente dentro de uma janela fixa.
 type RateLimiter struct {
 	mu      sync.Mutex
 	clients map[string]rateWindow
@@ -81,10 +87,12 @@ type RateLimiter struct {
 	now     func() time.Time
 }
 
+// NewRateLimiter cria um limitador com limite, janela e relógio informados.
 func NewRateLimiter(limit int, window time.Duration, now func() time.Time) *RateLimiter {
 	return &RateLimiter{clients: make(map[string]rateWindow), limit: limit, window: window, now: now}
 }
 
+// Handler rejeita com 429 quando o cliente excede o limite da janela.
 func (l *RateLimiter) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)

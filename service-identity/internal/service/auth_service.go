@@ -13,6 +13,7 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/auth"
 )
 
+// AuthService implementa registro e login com hash bcrypt e JWT.
 type AuthService struct {
 	repo          repository.UserRepository
 	secret        string
@@ -21,6 +22,7 @@ type AuthService struct {
 	generateToken func(string, int64, string, time.Duration) (string, error)
 }
 
+// New cria o serviço de autenticação com repositório, segredo JWT e TTL.
 func New(repo repository.UserRepository, secret string, ttl time.Duration) *AuthService {
 	return &AuthService{
 		repo:          repo,
@@ -31,6 +33,7 @@ func New(repo repository.UserRepository, secret string, ttl time.Duration) *Auth
 	}
 }
 
+// Register valida as credenciais, cria o usuário e emite um JWT.
 func (s *AuthService) Register(ctx context.Context, email, password string) (*domain.User, string, error) {
 	email, err := normalizeCredentials(email, password)
 	if err != nil {
@@ -60,6 +63,7 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (*do
 	return user, token, nil
 }
 
+// Login confere as credenciais e emite um JWT.
 func (s *AuthService) Login(ctx context.Context, email, password string) (*domain.User, string, error) {
 	email, err := normalizeCredentials(email, password)
 	if err != nil {

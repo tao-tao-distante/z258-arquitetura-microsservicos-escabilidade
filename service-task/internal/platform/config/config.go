@@ -5,6 +5,7 @@ import (
 	"os"
 )
 
+// Config agrupa as variáveis de ambiente do service-task.
 type Config struct {
 	Port           string
 	DatabaseURL    string
@@ -15,6 +16,7 @@ type Config struct {
 	DBMaxIdleConns int
 }
 
+// Load lê a configuração do ambiente e exige JWT_SECRET.
 func Load() (Config, error) {
 	cfg := Config{
 		Port:           getEnv("PORT", "8080"),

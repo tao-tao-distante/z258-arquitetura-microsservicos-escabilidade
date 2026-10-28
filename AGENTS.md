@@ -2,13 +2,13 @@
 
 ## Skills Relevantes Ativadas
 
-Este projeto utiliza as seguintes skills (conforme skills-list.txt):
+Projeto usa as skills abaixo:
 
 ### Arquitetura, Design e Planejamento
-- `documentation-and-adrs` - Manter `docs/ARCHITECTURE.md` e alinhar com ADRs em `docs/adrs/`
+- `documentation-and-adrs` - Manter `docs/ARCHITECTURE.md`, alinhar ADRs em `docs/adrs/`
 - `domain-modeling` - Estruturar domínios Identity, Task e Notification
-- `api-and-interface-design` - Design de endpoints REST HTTP e contratos AMQP
-- `planning-and-task-breakdown` - Organização do roteiro de execução
+- `api-and-interface-design` - Design endpoints REST HTTP e contratos AMQP
+- `planning-and-task-breakdown` - Organização roteiro de execução
 
 ### Desenvolvimento Backend em Go
 - `golang-project-layout` - Organização idiomática de pastas Go
@@ -17,8 +17,8 @@ Este projeto utiliza as seguintes skills (conforme skills-list.txt):
 - `golang-error-handling` - Tratamento explícito de erros com `if err != nil`
 - `golang-samber-slog` & `golang-observability` - Logging JSON estruturado com `log/slog`
 - `golang-database` - Conexão isolada com PostgreSQL e migrations
-- `golang-concurrency` - Consumo assíncrono e tratamento de eventos AMQP
-- `golang-testing` & `test-driven-development` - Ciclo Red-Green-Refactor, cobertura >= 95%
+- `golang-concurrency` - Consumo assíncrono e eventos AMQP
+- `golang-testing` & `test-driven-development` - Ciclo Red-Green-Refactor, cobertura agregada >= 95% por módulo
 - `golang-lint` - Código sem warnings
 
 ### Desenvolvimento Frontend
@@ -26,26 +26,26 @@ Este projeto utiliza as seguintes skills (conforme skills-list.txt):
 
 ### Observabilidade, Qualidade e Git
 - `observability-and-instrumentation` - Métricas Prometheus, traces OpenTelemetry/Tempo, Health Checks
-- `code-review-and-quality` & `code-simplification` - Refatoração e limpeza após TDD
+- `code-review-and-quality` & `code-simplification` - Refatoração e limpeza pós-TDD
 - `conventional-git` & `git-workflow-and-versioning` - Convenções Git
 
 ## Estrutura e Arquitetura
 
 ### Microsserviços Go
 - **service-identity** (8082:8080): Autenticação, registro, login, emissão/validação JWT. PostgreSQL isolado (postgres-identity).
-- **service-task** (8083:8080): CRUD de tarefas protegido por JWT. PostgreSQL isolado (postgres-task). Publica eventos no RabbitMQ com `x-correlation-id` nos headers AMQP.
+- **service-task** (8083:8080): CRUD de tarefas protegido por JWT. PostgreSQL isolado (postgres-task). Grava a tarefa e o evento `task.created` em `task_outbox` na mesma transação; um dispatcher publica no RabbitMQ com publisher confirms, `mandatory`, retry/backoff e `x-correlation-id` nos headers AMQP.
 - **service-notification** (8084:8080): Consumidor AMQP assíncrono. Extrai `x-correlation-id` dos headers AMQP. Suporte a Dead Letter Queue (DLQ).
 
 ### Frontend
 - **frontend** (8081:80): SPA Angular 20 servida via NGINX. Interceptor HTTP global injeta `x-correlation-id` (UUID v4) em todas as requisições.
 - Estrutura feature-first (ADR-0010): `src/app/core/{guards,interceptors,services,models}`, `src/app/shared/components`, `src/app/features/{auth,tasks,notifications}`.
 - URLs relativas em `src/environments/environment.ts` (`/api/identity`, `/api/tasks`, `/api/notifications`), resolvidas pelo proxy do `frontend/nginx.conf` para evitar CORS.
-- Build de produção em `frontend/dist/frontend/browser`; o Dockerfile copia esse diretório e o `nginx.conf` para o container.
+- Build de produção em `frontend/dist/frontend/browser`; Dockerfile copia esse diretório e o `nginx.conf` para o container.
 
 ### Mensageria e Persistência
 - **RabbitMQ** (5672:5672, 15672:15672): Broker AMQP com DLQ. Healthcheck `rabbitmq-diagnostics -q ping`.
 - **Topologia AMQP**: exchange `tasks` (topic), fila `task.events`, routing key `task.created`, exchange `tasks.dlx` (fanout) e DLQ `task.events.dlq`.
-- **service-task** publica e **service-notification** consome. Ambos declaram a topologia via `shared/broker` de forma idempotente no startup; o consumidor não depende da ordem de subida dos serviços.
+- **service-task** publica via outbox transacional e **service-notification** consome. Ambos declaram topologia via `shared/broker` de forma idempotente no startup; consumidor não depende da ordem de subida dos serviços. Publisher usa confirms com `mandatory`; entrega é at-least-once e consumidores devem deduplicar por `MessageId`/`event_id`.
 - **PostgreSQL 15**: Database-per-service (ADR-0001). `postgres-identity` e `postgres-task` com healthcheck `pg_isready`.
 
 ### Endpoints Implementados
@@ -59,7 +59,7 @@ Este projeto utiliza as seguintes skills (conforme skills-list.txt):
 - **tempo**: Armazenamento de traces distribuídos. Config em `provisioning/tempo/tempo.yaml`.
 - **grafana**: Visualização (3000:3000). Datasources em `provisioning/grafana/datasources/datasources.yml`.
 - Os três serviços enviam telemetria para `http://otel-collector:4317` via `OTEL_EXPORTER_OTLP_ENDPOINT`.
-- Validar configs com `docker compose --env-file .env.example config -q` e os comandos de validação do `README.md`.
+- Validar configs com `docker compose --env-file .env.example config -q` e comandos de validação do `README.md`.
 
 ## Padrões de Código Go
 
@@ -74,7 +74,7 @@ Este projeto utiliza as seguintes skills (conforme skills-list.txt):
 ### Docker
 - **Multi-stage builds**: Go (golang:1.23-alpine -> alpine:3.20, `CGO_ENABLED=0`), Angular (node:20.19-alpine -> nginx:1.31.6-alpine).
 - Os quatro `go.mod` (três serviços + `shared/`) declaram `go 1.23`. Manter dependências compatíveis com Go 1.23: `golang.org/x/crypto v0.41.0` é o mínimo exigido pelo `grpc v1.75` e declara `go 1.23`; não subir para versões que exijam Go mais novo.
-- Código comum entre serviços vive em `shared/` (`auth`, `broker`, `correlation`, `httpx`, `logger`, `middleware`, `telemetry`) e é consumido via `replace ../shared`. O context de build Docker é a raiz do repositório (ver `.dockerignore`).
+- Código comum entre serviços vive em `shared/` (`auth`, `broker`, `correlation`, `httpx`, `logger`, `middleware`, `telemetry`) e é consumido via `replace ../shared`. Context de build Docker é a raiz do repositório (ver `.dockerignore`).
 - Validar com `docker compose build` e `docker compose config -q`.
 
 ## Fluxo de Desenvolvimento em TDD
@@ -87,8 +87,8 @@ Este projeto utiliza as seguintes skills (conforme skills-list.txt):
 **Nenhum código de produção sem teste automatizado falhando previamente.**
 
 ## Metas de Qualidade
-- **Cobertura mínima**: >= 95% em todos os pacotes Go (unitários e integração)
-- Cobertura atual (sem `-race`): `shared` 97.7%, `service-identity` 98.6%, `service-task` 98.3%, `service-notification` 95.3%.
+- **Cobertura mínima agregada**: >= 95% por módulo Go (unitários e integração). Pacotes `cmd/` e `internal/domain` podem ficar abaixo isoladamente; a meta é o total do módulo.
+- Cobertura agregada atual por módulo (sem `-race`): `shared` 97.7%, `service-identity` 98.6%, `service-task` 98.3%, `service-notification` 95.3%.
 - Validar com: `go test -v -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`
 - Frontend: `npm run build` com `strict` e `strictTemplates`; não commitar `node_modules/`, `dist/`, `.angular/` ou `coverage.out`.
 - Smoke test manual: subir `docker compose up -d`, registrar usuário, criar/listar tarefa com JWT e confirmar log `notification_received` no `service-notification` com o `correlation_id` do evento.
@@ -132,4 +132,5 @@ docker compose down -v
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [ADRs](docs/adrs/)
 - [README](README.md)
+- [Segurança do frontend](frontend/SECURITY.md)
 - [Compose](compose.yml)

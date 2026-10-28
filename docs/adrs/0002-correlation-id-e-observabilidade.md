@@ -4,18 +4,22 @@
 
 Aceito, com instrumentação OpenTelemetry de traces implementada.
 
-## Context and Problem Statement
+## Data
+
+2026-10-28
+
+## Contexto e Problema
 
 Requisições HTTP e eventos AMQP precisam de um identificador pesquisável nos logs. Rastreamento distribuído também é
 desejável, mas correlação de logs e W3C Trace Context são mecanismos diferentes.
 
-## Decision Drivers
+## Fatores de Decisão
 
 - Logs JSON devem conter `correlation_id`.
 - O identificador deve atravessar frontend, APIs e RabbitMQ.
 - A infraestrutura deve aceitar métricas e traces OTLP quando as aplicações forem instrumentadas.
 
-## Decision Outcome
+## Resultado da Decisão
 
 Usar `x-correlation-id` como identificador de aplicação e `log/slog` para logs estruturados. O frontend gera UUID v4;
 middlewares Go capturam ou geram o valor; `service-task` e `service-notification` o propagam em header AMQP.
@@ -28,14 +32,14 @@ Collector, Tempo, Prometheus e Grafana são provisionados. Os serviços exportam
 `OTEL_EXPORTER_OTLP_ENDPOINT` está definido (o Compose aponta para `http://otel-collector:4317`). Métricas de runtime
 e de negócio ainda não são exportadas pelas aplicações; o Prometheus coleta apenas métricas internas do Collector.
 
-## Consequences
+## Consequências
 
 - Good: uma requisição e seu evento podem ser localizados nos logs por `correlation_id`.
 - Good: traces HTTP, AMQP e de dispatch do outbox são exportados para o Tempo e permitem visualizar a árvore de spans.
 - Bad: `correlation_id` e `trace_id` são independentes; não há link direto entre log e trace.
 - Bad: métricas de aplicação não são exportadas e logs ficam apenas no `stdout`; Loki não faz parte da solução.
 
-## Confirmation
+## Confirmação
 
 Enviar `x-correlation-id: test-123`, verificar o mesmo header na resposta e buscar `test-123` nos logs do serviço e do
 consumidor. Subir a stack com `OTEL_EXPORTER_OTLP_ENDPOINT` definido e confirmar no Tempo/Grafana os spans de

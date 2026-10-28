@@ -21,6 +21,7 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/middleware"
 )
 
+// Channel abstrai o canal AMQP usado pelo serviço.
 type Channel interface {
 	ExchangeDeclare(name, kind string, durable, autoDelete, internal, noWait bool, args amqp.Table) error
 	QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp.Table) (amqp.Queue, error)
@@ -32,24 +33,29 @@ type Channel interface {
 	Close() error
 }
 
+// Conn abstrai a conexão AMQP usada na inicialização.
 type Conn interface {
 	Channel() (Channel, error)
 	Close() error
 	IsClosed() bool
 }
 
+// Dialer abre uma conexão AMQP a partir da URL informada.
 type Dialer func(url string) (Conn, error)
 
+// Deps injeta as funções de infraestrutura usadas por Run.
 type Deps struct {
 	OpenDB     func(dsn string) (*sql.DB, error)
 	DialRabbit Dialer
 }
 
+// DB abstrai o acesso mínimo ao banco usado na inicialização.
 type DB interface {
 	PingContext(ctx context.Context) error
 	Close() error
 }
 
+// Run conecta ao banco e ao RabbitMQ, inicia o dispatcher do outbox e serve HTTP.
 func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) error {
 	db, err := deps.OpenDB(cfg.DatabaseURL)
 	if err != nil {
@@ -138,6 +144,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) er
 	}
 }
 
+// NewServer cria o servidor HTTP com timeouts explícitos.
 func NewServer(port string, h http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              ":" + port,
@@ -149,12 +156,14 @@ func NewServer(port string, h http.Handler) *http.Server {
 	}
 }
 
+// Shutdown encerra o servidor HTTP com timeout de 10 segundos.
 func Shutdown(srv *http.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(ctx)
 }
 
+// WaitForDB tenta pingar o banco até obter sucesso ou o contexto ser cancelado.
 func WaitForDB(ctx context.Context, db DB) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

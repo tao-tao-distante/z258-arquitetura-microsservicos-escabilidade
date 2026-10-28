@@ -14,10 +14,12 @@ import (
 	apitrace "go.opentelemetry.io/otel/trace"
 )
 
+// Shutdown encerra o provider de traces e libera recursos.
 type Shutdown func(context.Context) error
 
 type exporterFactory func(context.Context, string) (sdktrace.SpanExporter, error)
 
+// Setup configura o provider OTLP e devolve Shutdown, se a exportação está ativa e erro.
 func Setup(ctx context.Context, endpoint, serviceName string) (Shutdown, bool, error) {
 	return setup(ctx, endpoint, serviceName, func(ctx context.Context, endpoint string) (sdktrace.SpanExporter, error) {
 		return otlptracegrpc.New(ctx, otlptracegrpc.WithEndpointURL(endpoint))

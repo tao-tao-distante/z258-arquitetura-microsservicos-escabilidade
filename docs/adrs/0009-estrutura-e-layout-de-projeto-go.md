@@ -1,6 +1,14 @@
 # 0009 - Padronização de Arquitetura de Pastas e Layout de Projeto em Go (Golang)
 
-## Context and Problem Statement
+## Status
+
+Aceito.
+
+## Data
+
+2026-10-28
+
+## Contexto e Problema
 
 Com a adoção do Go no backend dos microsserviços (`service-identity`, `service-task` e `service-notification`), é
 necessário definir um padrão idiomático para a organização física de pastas e pacotes nos repositórios. Sem uma
@@ -8,7 +16,7 @@ estrutura de diretórios bem definida, projetos Go costumam sofrer com acoplamen
 (ex: `utils` ou `helpers`), vazamento de código de domínio e o erro de compilação de dependências circulares
 (`import cycle not allowed`).
 
-## Decision Drivers
+## Fatores de Decisão
 
 * **Idiomatismo Go:** Seguir as convenções amplamente aceitas pela comunidade Go e pela Standard Go Project Layout.
 * **Encapsulamento Rígido:** Utilizar o mecanismo nativo do Go de diretórios `internal/` para impedir que pacotes
@@ -18,15 +26,15 @@ estrutura de diretórios bem definida, projetos Go costumam sofrer com acoplamen
 * **Consistência Multisserviço:** Garantir que todos os microsserviços do repositório mantenham a mesma estrutura de
   diretórios, reduzindo a carga cognitiva da equipe.
 
-## Considered Options
+## Opções Consideradas
 
 * **Opção 1:** Layout Plano (Flat Layout) — todos os arquivos `.go` na raiz do serviço.
 * **Opção 2:** Layout por Camadas estilo MVC (`controllers/`, `models/`, `services/`).
 * **Opção 3:** Standard Go Project Layout centrado em Domínio e Clean Architecture (`cmd/`, `internal/`).
 
-## Decision Outcome
+## Resultado da Decisão
 
-Chosen option: "**Opção 3: Standard Go Project Layout centrado em Domínio e Clean Architecture**", pois combina a
+Opção escolhida: "**Opção 3: Standard Go Project Layout centrado em Domínio e Clean Architecture**", pois combina a
 convenção oficial da linguagem com a separação clara de responsabilidades (Entidades, Casos de Uso, Portas e
 Adaptadores).
 
@@ -67,3 +75,16 @@ shared/
 
 O módulo não contém regra de negócio; domínio, handlers, repositórios e configuração continuam privados em cada serviço.
 Como o context Docker passa a ser a raiz do repositório, os Dockerfiles copiam `shared/` e apenas o serviço alvo.
+
+### Consequências
+
+* Estrutura idêntica nos três serviços reduz carga cognitiva e atrito de navegação.
+* `internal/` impede importação externa acidental; `shared/` centraliza apenas infraestrutura comum.
+* Fluxo unidirecional de dependências evita ciclos de importação; interfaces internas facilitam mocks em testes.
+* Layout plano e MVC ficam descartados para novos pacotes; desvios exigem justificativa em revisão.
+
+### Confirmação
+
+* `go build ./...` e `go test ./...` passam em cada módulo.
+* `go list -deps` não revela ciclos, e pacotes de domínio não importam `internal/platform`.
+* A revisão confirma `cmd/`, `internal/` e o `replace ../shared` conforme o layout acima.

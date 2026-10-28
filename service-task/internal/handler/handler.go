@@ -16,6 +16,7 @@ import (
 
 const maxPayloadBytes = 1 << 20
 
+// TaskService define as operações de tarefas expostas pelo handler.
 type TaskService interface {
 	Create(ctx context.Context, userID int64, title, description string) (*domain.Task, error)
 	List(ctx context.Context, userID int64, limit, offset int) ([]domain.Task, error)
@@ -24,12 +25,14 @@ type TaskService interface {
 	Delete(ctx context.Context, id, userID int64) error
 }
 
+// Handler expõe os endpoints HTTP de tarefas e health.
 type Handler struct {
 	svc  TaskService
 	deps map[string]func(context.Context) error
 	log  *slog.Logger
 }
 
+// New cria o handler com o serviço, as checagens de dependência e o logger informados.
 func New(svc TaskService, deps map[string]func(context.Context) error, logs ...*slog.Logger) *Handler {
 	log := slog.Default()
 	if len(logs) > 0 && logs[0] != nil {
@@ -38,6 +41,7 @@ func New(svc TaskService, deps map[string]func(context.Context) error, logs ...*
 	return &Handler{svc: svc, deps: deps, log: log}
 }
 
+// Routes monta o mux com health público e rotas de tarefas protegidas por JWT.
 func (h *Handler) Routes(jwtSecret string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.Health)
@@ -73,6 +77,7 @@ func parseID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(raw, 10, 64)
 }
 
+// List devolve as tarefas do usuário autenticado com paginação.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
@@ -96,6 +101,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, tasks)
 }
 
+// Create cria uma tarefa para o usuário autenticado.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
@@ -120,6 +126,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, task)
 }
 
+// Get devolve uma tarefa do usuário autenticado.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
@@ -144,6 +151,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, task)
 }
 
+// Update atualiza uma tarefa do usuário autenticado.
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
@@ -177,6 +185,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, task)
 }
 
+// Delete remove uma tarefa do usuário autenticado.
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
@@ -236,6 +245,7 @@ func (h *Handler) logError(ctx context.Context, operation string, err error) {
 	platformlogger.WithCorrelation(ctx, h.log).ErrorContext(ctx, operation, "error", err)
 }
 
+// Health responde o estado do serviço, do PostgreSQL e do RabbitMQ.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	httpx.Health(w, r, h.deps, func(name string, err error) {
 		h.logError(r.Context(), "health dependency failed: "+name, err)

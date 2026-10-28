@@ -39,6 +39,7 @@ type amqpConn struct {
 	connection
 }
 
+// Channel abre um canal AMQP compatível com app.Channel.
 func (c amqpConn) Channel() (app.Channel, error) {
 	return c.connection.Channel()
 }

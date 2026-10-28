@@ -17,16 +17,19 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
+// Deps injeta as funções de infraestrutura usadas por Run.
 type Deps struct {
 	OpenDB func(dsn string) (*sql.DB, error)
 	Serve  func(*http.Server) error
 }
 
+// DB abstrai o acesso mínimo ao banco usado na inicialização.
 type DB interface {
 	PingContext(ctx context.Context) error
 	Close() error
 }
 
+// Run conecta ao banco, migra, monta o servidor e aguarda encerramento gracioso.
 func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) (runErr error) {
 	db, err := deps.OpenDB(cfg.DatabaseURL)
 	if err != nil {
@@ -83,6 +86,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) (r
 	}
 }
 
+// NewServer cria o servidor HTTP com timeouts explícitos.
 func NewServer(port string, h http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              ":" + port,
@@ -94,6 +98,7 @@ func NewServer(port string, h http.Handler) *http.Server {
 	}
 }
 
+// ConfigureDBPool aplica limites de conexão e tempos de vida ao pool.
 func ConfigureDBPool(db *sql.DB) {
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
@@ -101,12 +106,14 @@ func ConfigureDBPool(db *sql.DB) {
 	db.SetConnMaxIdleTime(5 * time.Minute)
 }
 
+// Shutdown encerra o servidor HTTP com timeout de 10 segundos.
 func Shutdown(srv *http.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(ctx)
 }
 
+// WaitForDB tenta pingar o banco até obter sucesso ou o contexto ser cancelado.
 func WaitForDB(ctx context.Context, db DB) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

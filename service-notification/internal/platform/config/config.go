@@ -2,12 +2,14 @@ package config
 
 import "os"
 
+// Config agrupa as variáveis de ambiente do service-notification.
 type Config struct {
 	Port         string
 	RabbitURL    string
 	OTLPEndpoint string
 }
 
+// Load lê a configuração do ambiente com valores padrão para desenvolvimento.
 func Load() Config {
 	return Config{
 		Port:         getEnv("PORT", "8080"),

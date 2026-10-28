@@ -14,26 +14,31 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
+// OutboxStore define as operações de outbox usadas pelo dispatcher.
 type OutboxStore interface {
 	ClaimOutbox(ctx context.Context) (*repository.OutboxEvent, error)
 	MarkOutboxSent(ctx context.Context, id int64) error
 	RetryOutbox(ctx context.Context, id int64, attempts int) error
 }
 
+// ReliablePublisher publica eventos com confirmação de entrega.
 type ReliablePublisher interface {
 	Publish(ctx context.Context, eventID, routingKey string, payload []byte) error
 }
 
+// Dispatcher publica eventos pendentes do outbox em intervalos regulares.
 type Dispatcher struct {
 	store     OutboxStore
 	publisher ReliablePublisher
 	log       *slog.Logger
 }
 
+// NewDispatcher cria o dispatcher com store, publisher e logger informados.
 func NewDispatcher(store OutboxStore, publisher ReliablePublisher, log *slog.Logger) *Dispatcher {
 	return &Dispatcher{store: store, publisher: publisher, log: log}
 }
 
+// Run despacha um evento a cada 500 ms até o contexto ser cancelado.
 func (d *Dispatcher) Run(ctx context.Context) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -49,6 +54,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
+// DispatchOne reivindica, publica e confirma um único evento do outbox.
 func (d *Dispatcher) DispatchOne(ctx context.Context) error {
 	ctx, span := otel.Tracer("service-task/messaging").Start(ctx, "outbox dispatch")
 	defer span.End()

@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// Channel abstrai o canal AMQP com publisher confirms.
 type Channel interface {
 	broker.Channel
 	PublishWithContext(ctx context.Context, exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
@@ -24,6 +25,7 @@ type Channel interface {
 	NotifyReturn(returned chan amqp.Return) chan amqp.Return
 }
 
+// Publisher publica eventos com confirms e detecção de retorno.
 type Publisher struct {
 	ch            Channel
 	confirmations chan amqp.Confirmation
@@ -31,10 +33,12 @@ type Publisher struct {
 	mu            sync.Mutex
 }
 
+// New cria o publisher com o canal informado.
 func New(ch Channel) *Publisher {
 	return &Publisher{ch: ch}
 }
 
+// Setup declara a topologia e habilita publisher confirms e returns.
 func (p *Publisher) Setup() error {
 	if err := broker.DeclareTopology(p.ch); err != nil {
 		return err
@@ -47,6 +51,7 @@ func (p *Publisher) Setup() error {
 	return nil
 }
 
+// Publish publica um evento persistente e aguarda confirmação de roteamento.
 func (p *Publisher) Publish(ctx context.Context, eventID, routingKey string, body []byte) error {
 	ctx, span := otel.Tracer("service-task/messaging").Start(ctx, "rabbitmq publish")
 	defer span.End()
@@ -114,13 +119,16 @@ func (p *Publisher) Publish(ctx context.Context, eventID, routingKey string, bod
 
 type tableCarrier amqp.Table
 
+// Get devolve o valor textual da chave no header AMQP.
 func (c tableCarrier) Get(key string) string {
 	value, _ := c[key].(string)
 	return value
 }
 
+// Set grava um valor textual no header AMQP.
 func (c tableCarrier) Set(key, value string) { c[key] = value }
 
+// Keys lista as chaves presentes no header AMQP.
 func (c tableCarrier) Keys() []string {
 	keys := make([]string, 0, len(c))
 	for key := range c {

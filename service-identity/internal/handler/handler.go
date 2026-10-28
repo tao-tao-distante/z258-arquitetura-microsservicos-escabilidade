@@ -15,11 +15,13 @@ import (
 
 const maxPayloadBytes = 16 << 10
 
+// AuthService define as operações de autenticação expostas pelo handler.
 type AuthService interface {
 	Register(ctx context.Context, email, password string) (*domain.User, string, error)
 	Login(ctx context.Context, email, password string) (*domain.User, string, error)
 }
 
+// Handler expõe os endpoints HTTP de registro, login e health.
 type Handler struct {
 	svc     AuthService
 	deps    map[string]func(context.Context) error
@@ -27,6 +29,7 @@ type Handler struct {
 	limiter *middleware.RateLimiter
 }
 
+// New cria o handler com o serviço, as checagens de dependência e o logger informados.
 func New(svc AuthService, deps map[string]func(context.Context) error, logs ...*slog.Logger) *Handler {
 	log := slog.Default()
 	if len(logs) > 0 && logs[0] != nil {
@@ -46,6 +49,7 @@ type authResponse struct {
 	Token string `json:"token"`
 }
 
+// Routes monta o mux com rate limit em registro/login e correlação global.
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("POST /register", h.limiter.Handler(http.HandlerFunc(h.Register)))
@@ -54,6 +58,7 @@ func (h *Handler) Routes() http.Handler {
 	return middleware.Correlation(mux)
 }
 
+// Register cria um usuário e devolve o JWT emitido.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	c, status, err := decodeCredentials(w, r)
 	if err != nil {
@@ -77,6 +82,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, authResponse{ID: user.ID, Email: user.Email, Token: token})
 }
 
+// Login autentica o usuário e devolve o JWT emitido.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	c, status, err := decodeCredentials(w, r)
 	if err != nil {
@@ -119,6 +125,7 @@ func (h *Handler) logInternal(ctx context.Context, err error) {
 	logger.WithCorrelation(ctx, h.log).ErrorContext(ctx, "internal_error", "error", err)
 }
 
+// Health responde o estado do serviço e do PostgreSQL.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	httpx.Health(w, r, h.deps, nil)
 }
