@@ -78,27 +78,15 @@ func (f *fakeRepo) Delete(ctx context.Context, id, userID int64) error {
 	return nil
 }
 
-type fakePublisher struct {
-	calls int
-	err   error
-}
-
-func (f *fakePublisher) PublishTaskCreated(ctx context.Context, taskID int64, title string) error {
-	f.calls++
-	return f.err
-}
-
 func TestCreateSuccess(t *testing.T) {
-	pub := &fakePublisher{}
-	svc := New(newFakeRepo(), pub)
+	svc := New(newFakeRepo())
 	task, err := svc.Create(context.Background(), 1, "title", "desc")
 	require.NoError(t, err)
 	require.Equal(t, "todo", task.Status)
-	require.Zero(t, pub.calls)
 }
 
 func TestCreateValidation(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	_, err := svc.Create(context.Background(), 1, "  ", "desc")
 	require.ErrorIs(t, err, domain.ErrInvalidInput)
 }
@@ -106,20 +94,13 @@ func TestCreateValidation(t *testing.T) {
 func TestCreateRepoError(t *testing.T) {
 	repo := newFakeRepo()
 	repo.err = errors.New("boom")
-	svc := New(repo, &fakePublisher{})
+	svc := New(repo)
 	_, err := svc.Create(context.Background(), 1, "title", "")
 	require.Error(t, err)
 }
 
-func TestCreateDoesNotDependOnRabbit(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{err: errors.New("boom")})
-	task, err := svc.Create(context.Background(), 1, "title", "")
-	require.NoError(t, err)
-	require.NotNil(t, task)
-}
-
 func TestList(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	_, err := svc.Create(context.Background(), 1, "a", "")
 	require.NoError(t, err)
 	tasks, err := svc.List(context.Background(), 1, 50, 0)
@@ -130,13 +111,13 @@ func TestList(t *testing.T) {
 func TestListError(t *testing.T) {
 	repo := newFakeRepo()
 	repo.err = errors.New("boom")
-	svc := New(repo, &fakePublisher{})
+	svc := New(repo)
 	_, err := svc.List(context.Background(), 1, 50, 0)
 	require.Error(t, err)
 }
 
 func TestGet(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	created, err := svc.Create(context.Background(), 1, "a", "")
 	require.NoError(t, err)
 	got, err := svc.Get(context.Background(), created.ID, 1)
@@ -145,13 +126,13 @@ func TestGet(t *testing.T) {
 }
 
 func TestGetNotFound(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	_, err := svc.Get(context.Background(), 99, 1)
 	require.ErrorIs(t, err, domain.ErrNotFound)
 }
 
 func TestUpdate(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	created, err := svc.Create(context.Background(), 1, "a", "")
 	require.NoError(t, err)
 	updated, err := svc.Update(context.Background(), created.ID, 1, "b", "d", "done")
@@ -161,20 +142,20 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestUpdateValidation(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	_, err := svc.Update(context.Background(), 1, 1, "", "", "todo")
 	require.ErrorIs(t, err, domain.ErrInvalidInput)
 }
 
 func TestUpdateRejectsUnknownStatus(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	_, err := svc.Update(context.Background(), 1, 1, "title", "", "arbitrary")
 	require.ErrorIs(t, err, domain.ErrInvalidInput)
 }
 
 func TestUpdateAcceptsFrontendDoingStatus(t *testing.T) {
 	repo := newFakeRepo()
-	svc := New(repo, &fakePublisher{})
+	svc := New(repo)
 	created, err := svc.Create(context.Background(), 1, "title", "")
 	require.NoError(t, err)
 	updated, err := svc.Update(context.Background(), created.ID, 1, "title", "", "doing")
@@ -183,7 +164,7 @@ func TestUpdateAcceptsFrontendDoingStatus(t *testing.T) {
 }
 
 func TestUpdateDefaultsStatus(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	created, err := svc.Create(context.Background(), 1, "a", "")
 	require.NoError(t, err)
 	updated, err := svc.Update(context.Background(), created.ID, 1, "b", "", "")
@@ -192,19 +173,19 @@ func TestUpdateDefaultsStatus(t *testing.T) {
 }
 
 func TestUpdateNotFound(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	_, err := svc.Update(context.Background(), 99, 1, "a", "", "todo")
 	require.ErrorIs(t, err, domain.ErrNotFound)
 }
 
 func TestDelete(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	created, err := svc.Create(context.Background(), 1, "a", "")
 	require.NoError(t, err)
 	require.NoError(t, svc.Delete(context.Background(), created.ID, 1))
 }
 
 func TestDeleteNotFound(t *testing.T) {
-	svc := New(newFakeRepo(), &fakePublisher{})
+	svc := New(newFakeRepo())
 	require.ErrorIs(t, svc.Delete(context.Background(), 99, 1), domain.ErrNotFound)
 }

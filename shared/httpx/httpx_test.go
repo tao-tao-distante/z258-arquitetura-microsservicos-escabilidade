@@ -1,6 +1,8 @@
 package httpx
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -60,4 +62,29 @@ func TestDecodeJSONRejectsOversizedPayload(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	require.Error(t, DecodeJSON(rec, req, &dst, 16))
+}
+
+func TestHealthOK(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Health(rec, httptest.NewRequest(http.MethodGet, "/health", nil), map[string]func(context.Context) error{
+		"postgres": func(context.Context) error { return nil },
+	}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.JSONEq(t, `{"status":"ok","dependencies":{"postgres":"ok"}}`, rec.Body.String())
+}
+
+func TestHealthDegraded(t *testing.T) {
+	down := errors.New("down")
+	var failedName string
+	var failedErr error
+	rec := httptest.NewRecorder()
+	Health(rec, httptest.NewRequest(http.MethodGet, "/health", nil), map[string]func(context.Context) error{
+		"rabbitmq": func(context.Context) error { return down },
+	}, func(name string, err error) {
+		failedName, failedErr = name, err
+	})
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.JSONEq(t, `{"status":"degraded","dependencies":{"rabbitmq":"error"}}`, rec.Body.String())
+	require.Equal(t, "rabbitmq", failedName)
+	require.ErrorIs(t, failedErr, down)
 }

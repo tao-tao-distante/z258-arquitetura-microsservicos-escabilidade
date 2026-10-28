@@ -26,3 +26,13 @@ func TestAMQPConnChannelPropagatesError(t *testing.T) {
 	_, err := amqpConn{connection: fakeConnection{}}.Channel()
 	require.ErrorContains(t, err, "channel failed")
 }
+
+func TestDialRabbitSuccess(t *testing.T) {
+	original := dialAMQP
+	t.Cleanup(func() { dialAMQP = original })
+	dialAMQP = func(string) (*amqp.Connection, error) { return &amqp.Connection{}, nil }
+
+	conn, err := dialRabbit("amqp://guest:guest@localhost:5672/")
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+}

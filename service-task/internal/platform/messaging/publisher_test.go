@@ -8,6 +8,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/require"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/broker"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -94,12 +95,12 @@ func itoa(i int) string {
 	return string(rune('0' + i))
 }
 
-func TestPublishTaskCreated(t *testing.T) {
+func TestPublish(t *testing.T) {
 	ch := &fakeChannel{}
 	p := New(ch)
 	require.NoError(t, p.Setup())
 	ctx := correlation.NewContext(context.Background(), "cid-123")
-	require.NoError(t, p.PublishTaskCreated(ctx, 9, "Minha tarefa"))
+	require.NoError(t, p.Publish(ctx, "task-9", broker.RoutingKey, []byte(`{"task_id":9,"title":"Minha tarefa"}`)))
 	require.Equal(t, "task.created", ch.publishedKey)
 	require.Equal(t, "cid-123", ch.publishedMsg.Headers["x-correlation-id"])
 	require.Equal(t, "application/json", ch.publishedMsg.ContentType)
@@ -116,23 +117,23 @@ func TestPublishInjectsTraceContext(t *testing.T) {
 		TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled,
 	})
 	ctx := trace.ContextWithSpanContext(context.Background(), spanContext)
-	require.NoError(t, p.PublishTaskCreated(ctx, 1, "x"))
+	require.NoError(t, p.Publish(ctx, "task-1", broker.RoutingKey, []byte(`{"task_id":1,"title":"x"}`)))
 	require.NotEmpty(t, ch.publishedMsg.Headers["traceparent"])
 }
 
-func TestPublishTaskCreatedError(t *testing.T) {
+func TestPublishError(t *testing.T) {
 	ch := &fakeChannel{}
 	p := New(ch)
 	require.NoError(t, p.Setup())
 	ch.err = amqp.ErrClosed
-	require.Error(t, p.PublishTaskCreated(context.Background(), 1, "x"))
+	require.Error(t, p.Publish(context.Background(), "task-1", broker.RoutingKey, []byte(`{"task_id":1,"title":"x"}`)))
 }
 
 func TestPublishRejectsNackAndMandatoryReturn(t *testing.T) {
 	for _, ch := range []*fakeChannel{{nack: true}, {returned: true}} {
 		p := New(ch)
 		require.NoError(t, p.Setup())
-		require.Error(t, p.PublishTaskCreated(context.Background(), 1, "x"))
+		require.Error(t, p.Publish(context.Background(), "task-1", broker.RoutingKey, []byte(`{"task_id":1,"title":"x"}`)))
 	}
 }
 
@@ -163,7 +164,7 @@ func TestSetupConfirmError(t *testing.T) {
 }
 
 func TestPublishRequiresSetup(t *testing.T) {
-	require.Error(t, New(&fakeChannel{}).Publish(context.Background(), "event", RoutingKey, nil))
+	require.Error(t, New(&fakeChannel{}).Publish(context.Background(), "event", broker.RoutingKey, nil))
 }
 
 func TestTableCarrier(t *testing.T) {
@@ -178,19 +179,19 @@ func TestPublishStopsOnContextCanceled(t *testing.T) {
 	require.NoError(t, p.Setup())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	require.ErrorIs(t, p.Publish(ctx, "event", RoutingKey, nil), context.Canceled)
+	require.ErrorIs(t, p.Publish(ctx, "event", broker.RoutingKey, nil), context.Canceled)
 }
 
 func TestPublishRejectsMandatoryReturnBeforeConfirm(t *testing.T) {
 	ch := &fakeChannel{returned: true, noConfirm: true}
 	p := New(ch)
 	require.NoError(t, p.Setup())
-	require.Error(t, p.PublishTaskCreated(context.Background(), 1, "x"))
+	require.Error(t, p.Publish(context.Background(), "task-1", broker.RoutingKey, []byte(`{"task_id":1,"title":"x"}`)))
 }
 
 func TestPublishRejectsMandatoryReturnAfterConfirm(t *testing.T) {
 	ch := &fakeChannel{returned: true, returnAfterConfirm: true}
 	p := New(ch)
 	require.NoError(t, p.Setup())
-	require.Error(t, p.PublishTaskCreated(context.Background(), 1, "x"))
+	require.Error(t, p.Publish(context.Background(), "task-1", broker.RoutingKey, []byte(`{"task_id":1,"title":"x"}`)))
 }

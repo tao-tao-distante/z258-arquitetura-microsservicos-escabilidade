@@ -30,15 +30,11 @@ export class AuthService {
   }
 
   login(credentials: Credentials) {
-    return this.http
-      .post<AuthResponse>(`${this.api}/login`, credentials)
-      .pipe(tap((res) => this.persist(res)));
+    return this.authenticate('/login', credentials);
   }
 
   register(credentials: Credentials) {
-    return this.http
-      .post<AuthResponse>(`${this.api}/register`, credentials)
-      .pipe(tap((res) => this.persist(res)));
+    return this.authenticate('/register', credentials);
   }
 
   logout(): void {
@@ -66,6 +62,12 @@ export class AuthService {
       this.clearSession();
     }
     return null;
+  }
+
+  private authenticate(path: string, credentials: Credentials) {
+    return this.http
+      .post<AuthResponse>(`${this.api}${path}`, credentials)
+      .pipe(tap((res) => this.persist(res)));
   }
 
   private persist(res: AuthResponse): void {

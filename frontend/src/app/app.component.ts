@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from './core/services/auth.service';
 
@@ -68,7 +68,7 @@ import { AuthService } from './core/services/auth.service';
 })
 export class AppComponent {
   private readonly auth = inject(AuthService);
-  readonly authenticated = computed(() => this.auth.isAuthenticated());
+  readonly authenticated = this.auth.isAuthenticated;
 
   logout(): void {
     this.auth.logout();

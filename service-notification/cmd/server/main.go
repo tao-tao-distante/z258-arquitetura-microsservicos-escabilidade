@@ -43,8 +43,10 @@ func (c amqpConn) Channel() (app.Channel, error) {
 	return c.connection.Channel()
 }
 
+var dialAMQP = amqp.Dial
+
 func dialRabbit(url string) (app.Conn, error) {
-	conn, err := amqp.Dial(url)
+	conn, err := dialAMQP(url)
 	if err != nil {
 		return nil, err
 	}

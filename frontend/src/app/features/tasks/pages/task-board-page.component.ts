@@ -6,6 +6,12 @@ import { TaskCardComponent } from '../components/task-card.component';
 import { TaskDataService } from '../services/task-data.service';
 import { STATUSES, Task, TaskStatus } from '../models/task.model';
 
+const COLUMN_TITLES: Record<TaskStatus, string> = {
+  todo: 'A fazer',
+  doing: 'Em progresso',
+  done: 'Concluídas',
+};
+
 @Component({
   selector: 'app-task-board-page',
   imports: [FormsModule, TaskCardComponent],
@@ -120,7 +126,6 @@ export class TaskBoardPageComponent implements OnInit {
 
   readonly statuses = STATUSES;
   readonly tasks = signal<Task[]>([]);
-  readonly loading = signal(false);
   readonly createPending = signal(false);
   readonly createSubmitted = signal(false);
   readonly pendingTaskIds = signal<ReadonlySet<number>>(new Set());
@@ -147,7 +152,7 @@ export class TaskBoardPageComponent implements OnInit {
   }
 
   columnTitle(status: TaskStatus): string {
-    return { todo: 'A fazer', doing: 'Em progresso', done: 'Concluídas' }[status];
+    return COLUMN_TITLES[status];
   }
 
   create(form?: NgForm): void {
@@ -213,18 +218,13 @@ export class TaskBoardPageComponent implements OnInit {
 
   private reload(): void {
     this.error.set('');
-    this.loading.set(true);
     this.data.list().subscribe({
-      next: (tasks) => {
-        this.tasks.set(tasks);
-        this.loading.set(false);
-      },
+      next: (tasks) => this.tasks.set(tasks),
       error: (err: HttpErrorResponse) => this.fail(err),
     });
   }
 
   private fail(err: HttpErrorResponse): void {
-    this.loading.set(false);
     this.error.set(
       err.status === 401 ? 'Sessão expirada. Faça login novamente.' : 'Erro ao processar tarefa.',
     );

@@ -57,47 +57,47 @@ func (h *Handler) Routes() http.Handler {
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	c, status, err := decodeCredentials(w, r)
 	if err != nil {
-		writeError(w, status, "invalid payload")
+		httpx.WriteError(w, status, "invalid payload")
 		return
 	}
 	user, token, err := h.svc.Register(r.Context(), c.Email, c.Password)
 	if errors.Is(err, domain.ErrEmailTaken) {
-		writeError(w, http.StatusConflict, "email already taken")
+		httpx.WriteError(w, http.StatusConflict, "email already taken")
 		return
 	}
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidInput) {
-			writeError(w, http.StatusBadRequest, "invalid email or password")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid email or password")
 			return
 		}
 		h.logInternal(r.Context(), err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, authResponse{ID: user.ID, Email: user.Email, Token: token})
+	httpx.WriteJSON(w, http.StatusCreated, authResponse{ID: user.ID, Email: user.Email, Token: token})
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	c, status, err := decodeCredentials(w, r)
 	if err != nil {
-		writeError(w, status, "invalid payload")
+		httpx.WriteError(w, status, "invalid payload")
 		return
 	}
 	user, token, err := h.svc.Login(r.Context(), c.Email, c.Password)
 	if errors.Is(err, domain.ErrInvalidCredentials) {
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidInput) {
-			writeError(w, http.StatusBadRequest, "invalid email or password")
+			httpx.WriteError(w, http.StatusBadRequest, "invalid email or password")
 			return
 		}
 		h.logInternal(r.Context(), err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, authResponse{ID: user.ID, Email: user.Email, Token: token})
+	httpx.WriteJSON(w, http.StatusOK, authResponse{ID: user.ID, Email: user.Email, Token: token})
 }
 
 func decodeCredentials(w http.ResponseWriter, r *http.Request) (credentials, int, error) {
@@ -120,25 +120,5 @@ func (h *Handler) logInternal(ctx context.Context, err error) {
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	deps := map[string]string{}
-	status := http.StatusOK
-	overall := "ok"
-	for name, check := range h.deps {
-		if err := check(r.Context()); err != nil {
-			deps[name] = "error"
-			status = http.StatusServiceUnavailable
-			overall = "degraded"
-			continue
-		}
-		deps[name] = "ok"
-	}
-	writeJSON(w, status, map[string]any{"status": overall, "dependencies": deps})
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	httpx.WriteJSON(w, status, payload)
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	httpx.WriteError(w, status, msg)
+	httpx.Health(w, r, h.deps, nil)
 }

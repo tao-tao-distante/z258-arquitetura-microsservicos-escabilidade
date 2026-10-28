@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/repository"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/broker"
 )
 
 type fakeOutbox struct {
@@ -37,7 +38,7 @@ type fakeReliablePublisher struct{ err error }
 func (f fakeReliablePublisher) Publish(context.Context, string, string, []byte) error { return f.err }
 
 func TestDispatcherMarksConfirmedEventSent(t *testing.T) {
-	store := &fakeOutbox{event: &repository.OutboxEvent{ID: 7, EventID: "event", EventType: RoutingKey, Payload: []byte(`{}`)}}
+	store := &fakeOutbox{event: &repository.OutboxEvent{ID: 7, EventID: "event", EventType: broker.RoutingKey, Payload: []byte(`{}`)}}
 	d := NewDispatcher(store, fakeReliablePublisher{}, slog.Default())
 	require.NoError(t, d.DispatchOne(context.Background()))
 	require.Equal(t, int64(7), store.sent)
@@ -45,7 +46,7 @@ func TestDispatcherMarksConfirmedEventSent(t *testing.T) {
 }
 
 func TestDispatcherRetriesRabbitFailure(t *testing.T) {
-	store := &fakeOutbox{event: &repository.OutboxEvent{ID: 7, EventID: "event", EventType: RoutingKey, Payload: []byte(`{}`), Attempts: 2}}
+	store := &fakeOutbox{event: &repository.OutboxEvent{ID: 7, EventID: "event", EventType: broker.RoutingKey, Payload: []byte(`{}`), Attempts: 2}}
 	d := NewDispatcher(store, fakeReliablePublisher{err: errors.New("rabbit down")}, slog.Default())
 	require.NoError(t, d.DispatchOne(context.Background()))
 	require.Equal(t, int64(7), store.retried)
@@ -58,7 +59,7 @@ func TestDispatcherPropagatesStoreFailure(t *testing.T) {
 }
 
 func TestDispatcherPropagatesMarkAndRetryFailures(t *testing.T) {
-	event := &repository.OutboxEvent{ID: 7, EventID: "event", EventType: RoutingKey}
+	event := &repository.OutboxEvent{ID: 7, EventID: "event", EventType: broker.RoutingKey}
 	require.Error(t, NewDispatcher(&fakeOutbox{event: event, markErr: errors.New("mark")}, fakeReliablePublisher{}, slog.Default()).DispatchOne(context.Background()))
 	require.Error(t, NewDispatcher(&fakeOutbox{event: event, retryErr: errors.New("retry")}, fakeReliablePublisher{err: errors.New("rabbit")}, slog.Default()).DispatchOne(context.Background()))
 }

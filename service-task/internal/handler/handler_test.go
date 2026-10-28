@@ -281,7 +281,7 @@ func TestHealthOK(t *testing.T) {
 
 func TestHealthDegraded(t *testing.T) {
 	var logs bytes.Buffer
-	h := NewWithLogger(&fakeService{}, map[string]func(context.Context) error{
+	h := New(&fakeService{}, map[string]func(context.Context) error{
 		"rabbitmq": func(context.Context) error { return errors.New("down") },
 	}, slog.New(slog.NewJSONHandler(&logs, nil)))
 	rec := httptest.NewRecorder()

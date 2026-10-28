@@ -134,13 +134,8 @@ func TestRunSuccess(t *testing.T) {
 func TestRunSuccessWithServerError(t *testing.T) {
 	db, mock := newMock(t)
 	expectDB(mock)
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(80 * time.Millisecond)
-		cancel()
-	}()
 	deps := okDeps(db, &fakeConn{ch: &fakeChannel{}})
-	require.Error(t, Run(ctx, config.Config{Port: "invalid"}, slog.Default(), deps))
+	require.Error(t, Run(context.Background(), config.Config{Port: "invalid"}, slog.Default(), deps))
 }
 
 func TestWaitForDBRetriesThenSucceeds(t *testing.T) {

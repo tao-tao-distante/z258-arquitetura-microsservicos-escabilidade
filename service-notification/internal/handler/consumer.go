@@ -13,7 +13,9 @@ import (
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-notification/internal/domain"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/broker"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/httpx"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -21,20 +23,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const (
-	Exchange      = "tasks"
-	Queue         = "task.events"
-	RoutingKey    = "task.created"
-	DeadLetterXch = "tasks.dlx"
-	DeadLetterQ   = "task.events.dlq"
-	HeaderCID     = "x-correlation-id"
-	PrefetchCount = 10
-)
+const PrefetchCount = 10
 
 type Channel interface {
-	ExchangeDeclare(name, kind string, durable, autoDelete, internal, noWait bool, args amqp.Table) error
-	QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp.Table) (amqp.Queue, error)
-	QueueBind(name, key, exchange string, noWait bool, args amqp.Table) error
+	broker.Channel
 	Qos(prefetchCount, prefetchSize int, global bool) error
 	Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp.Table) (<-chan amqp.Delivery, error)
 }
@@ -50,13 +42,13 @@ func NewConsumer(ch Channel, log *slog.Logger) *Consumer {
 }
 
 func (c *Consumer) Start(ctx context.Context) error {
-	if err := c.setup(); err != nil {
+	if err := broker.DeclareTopology(c.ch); err != nil {
 		return fmt.Errorf("declare topology: %w", err)
 	}
 	if err := c.ch.Qos(PrefetchCount, 0, false); err != nil {
 		return fmt.Errorf("set qos: %w", err)
 	}
-	deliveries, err := c.ch.Consume(Queue, "service-notification", false, false, false, false, nil)
+	deliveries, err := c.ch.Consume(broker.Queue, "service-notification", false, false, false, false, nil)
 	if err != nil {
 		return fmt.Errorf("consume: %w", err)
 	}
@@ -81,30 +73,6 @@ func (c *Consumer) Active() bool {
 	return c.active.Load()
 }
 
-func (c *Consumer) setup() error {
-	if err := c.ch.ExchangeDeclare(DeadLetterXch, "fanout", true, false, false, false, nil); err != nil {
-		return fmt.Errorf("declare dlx: %w", err)
-	}
-	if _, err := c.ch.QueueDeclare(DeadLetterQ, true, false, false, false, nil); err != nil {
-		return fmt.Errorf("declare dlq: %w", err)
-	}
-	if err := c.ch.QueueBind(DeadLetterQ, "", DeadLetterXch, false, nil); err != nil {
-		return fmt.Errorf("bind dlq: %w", err)
-	}
-	if err := c.ch.ExchangeDeclare(Exchange, "topic", true, false, false, false, nil); err != nil {
-		return fmt.Errorf("declare exchange: %w", err)
-	}
-	if _, err := c.ch.QueueDeclare(Queue, true, false, false, false, amqp.Table{
-		"x-dead-letter-exchange": DeadLetterXch,
-	}); err != nil {
-		return fmt.Errorf("declare queue: %w", err)
-	}
-	if err := c.ch.QueueBind(Queue, RoutingKey, Exchange, false, nil); err != nil {
-		return fmt.Errorf("bind queue: %w", err)
-	}
-	return nil
-}
-
 func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 	ctx := otel.GetTextMapPropagator().Extract(context.Background(), amqpHeaderCarrier(delivery.Headers))
 	ctx, span := otel.Tracer("service-notification/consumer").Start(ctx, "task.created consume",
@@ -117,7 +85,7 @@ func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 		span.End()
 	}()
 
-	cid, _ := delivery.Headers[HeaderCID].(string)
+	cid, _ := delivery.Headers[broker.CorrelationIDHeader].(string)
 	if _, parseErr := uuid.Parse(cid); parseErr != nil {
 		cid = correlation.NewID()
 	}
@@ -183,19 +151,5 @@ func NewHealth(deps map[string]func(context.Context) error) *Health {
 }
 
 func (h *Health) Health(w http.ResponseWriter, r *http.Request) {
-	deps := map[string]string{}
-	status := http.StatusOK
-	overall := "ok"
-	for name, check := range h.deps {
-		if err := check(r.Context()); err != nil {
-			deps[name] = "error"
-			status = http.StatusServiceUnavailable
-			overall = "degraded"
-			continue
-		}
-		deps[name] = "ok"
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"status": overall, "dependencies": deps})
+	httpx.Health(w, r, h.deps, nil)
 }

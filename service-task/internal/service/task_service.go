@@ -9,15 +9,11 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/repository"
 )
 
-type EventPublisher interface {
-	PublishTaskCreated(ctx context.Context, taskID int64, title string) error
-}
-
 type TaskService struct {
 	repo repository.TaskRepository
 }
 
-func New(repo repository.TaskRepository, publisher EventPublisher) *TaskService {
+func New(repo repository.TaskRepository) *TaskService {
 	return &TaskService{repo: repo}
 }
 

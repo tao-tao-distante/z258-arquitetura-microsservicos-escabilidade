@@ -94,8 +94,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) er
 	}
 
 	repo := repository.NewPostgresTaskRepository(db)
-	svc := service.New(repo, nil)
-	h := handler.NewWithLogger(svc, map[string]func(context.Context) error{
+	svc := service.New(repo)
+	h := handler.New(svc, map[string]func(context.Context) error{
 		"postgres": db.PingContext,
 		"rabbitmq": func(context.Context) error {
 			if conn.IsClosed() {

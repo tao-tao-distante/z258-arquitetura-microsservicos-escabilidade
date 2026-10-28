@@ -2,13 +2,13 @@ package messaging
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/broker"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -16,28 +16,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const (
-	Exchange      = "tasks"
-	Queue         = "task.events"
-	RoutingKey    = "task.created"
-	DeadLetterXch = "tasks.dlx"
-	DeadLetterQ   = "task.events.dlq"
-	HeaderCID     = "x-correlation-id"
-)
-
 type Channel interface {
-	ExchangeDeclare(name, kind string, durable, autoDelete, internal, noWait bool, args amqp.Table) error
-	QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp.Table) (amqp.Queue, error)
-	QueueBind(name, key, exchange string, noWait bool, args amqp.Table) error
+	broker.Channel
 	PublishWithContext(ctx context.Context, exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
 	Confirm(noWait bool) error
 	NotifyPublish(confirm chan amqp.Confirmation) chan amqp.Confirmation
 	NotifyReturn(returned chan amqp.Return) chan amqp.Return
-}
-
-type TaskCreatedEvent struct {
-	TaskID int64  `json:"task_id"`
-	Title  string `json:"title"`
 }
 
 type Publisher struct {
@@ -52,25 +36,8 @@ func New(ch Channel) *Publisher {
 }
 
 func (p *Publisher) Setup() error {
-	if err := p.ch.ExchangeDeclare(DeadLetterXch, "fanout", true, false, false, false, nil); err != nil {
-		return fmt.Errorf("declare dlx: %w", err)
-	}
-	if _, err := p.ch.QueueDeclare(DeadLetterQ, true, false, false, false, nil); err != nil {
-		return fmt.Errorf("declare dlq: %w", err)
-	}
-	if err := p.ch.QueueBind(DeadLetterQ, "", DeadLetterXch, false, nil); err != nil {
-		return fmt.Errorf("bind dlq: %w", err)
-	}
-	if err := p.ch.ExchangeDeclare(Exchange, "topic", true, false, false, false, nil); err != nil {
-		return fmt.Errorf("declare exchange: %w", err)
-	}
-	if _, err := p.ch.QueueDeclare(Queue, true, false, false, false, amqp.Table{
-		"x-dead-letter-exchange": DeadLetterXch,
-	}); err != nil {
-		return fmt.Errorf("declare queue: %w", err)
-	}
-	if err := p.ch.QueueBind(Queue, RoutingKey, Exchange, false, nil); err != nil {
-		return fmt.Errorf("bind queue: %w", err)
+	if err := broker.DeclareTopology(p.ch); err != nil {
+		return err
 	}
 	if err := p.ch.Confirm(false); err != nil {
 		return fmt.Errorf("enable publisher confirms: %w", err)
@@ -80,20 +47,12 @@ func (p *Publisher) Setup() error {
 	return nil
 }
 
-func (p *Publisher) PublishTaskCreated(ctx context.Context, taskID int64, title string) error {
-	body, err := json.Marshal(TaskCreatedEvent{TaskID: taskID, Title: title})
-	if err != nil {
-		return fmt.Errorf("marshal event: %w", err)
-	}
-	return p.Publish(ctx, fmt.Sprintf("task-%d", taskID), RoutingKey, body)
-}
-
 func (p *Publisher) Publish(ctx context.Context, eventID, routingKey string, body []byte) error {
 	ctx, span := otel.Tracer("service-task/messaging").Start(ctx, "rabbitmq publish")
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("messaging.system", "rabbitmq"),
-		attribute.String("messaging.destination.name", Exchange),
+		attribute.String("messaging.destination.name", broker.Exchange),
 		attribute.String("messaging.message.id", eventID),
 		attribute.String("messaging.rabbitmq.destination.routing_key", routingKey),
 	)
@@ -104,7 +63,7 @@ func (p *Publisher) Publish(ctx context.Context, eventID, routingKey string, bod
 		recordSpanError(span, err)
 		return err
 	}
-	headers := amqp.Table{HeaderCID: correlation.FromContext(ctx)}
+	headers := amqp.Table{broker.CorrelationIDHeader: correlation.FromContext(ctx)}
 	otel.GetTextMapPropagator().Inject(ctx, tableCarrier(headers))
 	msg := amqp.Publishing{
 		ContentType:  "application/json",
@@ -115,7 +74,7 @@ func (p *Publisher) Publish(ctx context.Context, eventID, routingKey string, bod
 		MessageId:    eventID,
 		Type:         routingKey,
 	}
-	if err := p.ch.PublishWithContext(ctx, Exchange, routingKey, true, false, msg); err != nil {
+	if err := p.ch.PublishWithContext(ctx, broker.Exchange, routingKey, true, false, msg); err != nil {
 		recordSpanError(span, err)
 		return fmt.Errorf("publish event: %w", err)
 	}

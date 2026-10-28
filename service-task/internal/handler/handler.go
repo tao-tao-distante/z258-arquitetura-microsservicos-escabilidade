@@ -30,11 +30,11 @@ type Handler struct {
 	log  *slog.Logger
 }
 
-func New(svc TaskService, deps map[string]func(context.Context) error) *Handler {
-	return &Handler{svc: svc, deps: deps, log: slog.Default()}
-}
-
-func NewWithLogger(svc TaskService, deps map[string]func(context.Context) error, log *slog.Logger) *Handler {
+func New(svc TaskService, deps map[string]func(context.Context) error, logs ...*slog.Logger) *Handler {
+	log := slog.Default()
+	if len(logs) > 0 && logs[0] != nil {
+		log = logs[0]
+	}
 	return &Handler{svc: svc, deps: deps, log: log}
 }
 
@@ -76,30 +76,30 @@ func parseID(r *http.Request) (int64, error) {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	limit, offset, err := pagination(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid pagination")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid pagination")
 		return
 	}
 	tasks, err := h.svc.List(r.Context(), uid, limit, offset)
 	if err != nil {
 		h.logError(r.Context(), "list tasks", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if tasks == nil {
 		tasks = []domain.Task{}
 	}
-	writeJSON(w, http.StatusOK, tasks)
+	httpx.WriteJSON(w, http.StatusOK, tasks)
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var p taskPayload
@@ -109,50 +109,50 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	task, err := h.svc.Create(r.Context(), uid, p.Title, p.Description)
 	if errors.Is(err, domain.ErrInvalidInput) {
-		writeError(w, http.StatusBadRequest, "title is required")
+		httpx.WriteError(w, http.StatusBadRequest, "title is required")
 		return
 	}
 	if err != nil {
 		h.logError(r.Context(), "create task", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, task)
+	httpx.WriteJSON(w, http.StatusCreated, task)
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
 	task, err := h.svc.Get(r.Context(), id, uid)
 	if errors.Is(err, domain.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "task not found")
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	if err != nil {
 		h.logError(r.Context(), "get task", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	httpx.WriteJSON(w, http.StatusOK, task)
 }
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
 	var p taskPayload
@@ -162,40 +162,40 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	task, err := h.svc.Update(r.Context(), id, uid, p.Title, p.Description, p.Status)
 	if errors.Is(err, domain.ErrInvalidInput) {
-		writeError(w, http.StatusBadRequest, "invalid task")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid task")
 		return
 	}
 	if errors.Is(err, domain.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "task not found")
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	if err != nil {
 		h.logError(r.Context(), "update task", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	httpx.WriteJSON(w, http.StatusOK, task)
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
 	err = h.svc.Delete(r.Context(), id, uid)
 	if errors.Is(err, domain.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "task not found")
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	if err != nil {
 		h.logError(r.Context(), "delete task", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -226,10 +226,10 @@ func decodePayload(w http.ResponseWriter, r *http.Request, dst any) error {
 func writePayloadError(w http.ResponseWriter, err error) {
 	var maxErr *http.MaxBytesError
 	if errors.As(err, &maxErr) {
-		writeError(w, http.StatusRequestEntityTooLarge, "payload too large")
+		httpx.WriteError(w, http.StatusRequestEntityTooLarge, "payload too large")
 		return
 	}
-	writeError(w, http.StatusBadRequest, "invalid payload")
+	httpx.WriteError(w, http.StatusBadRequest, "invalid payload")
 }
 
 func (h *Handler) logError(ctx context.Context, operation string, err error) {
@@ -237,26 +237,7 @@ func (h *Handler) logError(ctx context.Context, operation string, err error) {
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	deps := map[string]string{}
-	status := http.StatusOK
-	overall := "ok"
-	for name, check := range h.deps {
-		if err := check(r.Context()); err != nil {
-			h.logError(r.Context(), "health dependency failed: "+name, err)
-			deps[name] = "error"
-			status = http.StatusServiceUnavailable
-			overall = "degraded"
-			continue
-		}
-		deps[name] = "ok"
-	}
-	writeJSON(w, status, map[string]any{"status": overall, "dependencies": deps})
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	httpx.WriteJSON(w, status, payload)
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	httpx.WriteError(w, status, msg)
+	httpx.Health(w, r, h.deps, func(name string, err error) {
+		h.logError(r.Context(), "health dependency failed: "+name, err)
+	})
 }

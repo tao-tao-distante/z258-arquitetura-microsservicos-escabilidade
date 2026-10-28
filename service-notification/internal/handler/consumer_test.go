@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/require"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/broker"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -190,7 +191,7 @@ func TestStartInvalidCorrelationIDGeneratesUUID(t *testing.T) {
 	ack := &fakeAck{}
 	ch.deliveries <- amqp.Delivery{
 		Acknowledger: ack,
-		Headers:      amqp.Table{HeaderCID: "not-a-uuid"},
+		Headers:      amqp.Table{broker.CorrelationIDHeader: "not-a-uuid"},
 		Body:         []byte(`{"task_id":2,"title":"task"}`),
 	}
 	close(ch.deliveries)
