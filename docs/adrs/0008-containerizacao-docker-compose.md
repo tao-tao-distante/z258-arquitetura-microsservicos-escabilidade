@@ -47,4 +47,8 @@ rotas de `/health`.
 
 * Good, porque garante um binário compilado limpo dentro do container de build sem poluir a imagem final.
 * Good, porque atende estritamente às exigências de entrega da disciplina.
-* Neutral, porque necessita de um arquivo `compose.yml` bem estruturado com políticas de dependência (`depends_on`).
+* Neutral, porque necessita de `compose.yml`, `.env` local, healthchecks, volumes e redes segmentadas.
+* Good, porque imagens de infraestrutura usam versões completas e o Compose exige segredos sem versioná-los.
+* Good, porque portas administrativas usam loopback e dependências internas não são publicadas no host.
+* Neutral, porque o módulo `shared/` exige que o context de build dos serviços Go seja a raiz do repositório, com um
+  `.dockerignore` global limitando o contexto enviado ao daemon.

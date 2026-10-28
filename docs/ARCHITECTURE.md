@@ -1,80 +1,91 @@
-# Documento de Arquitetura de Software: Task Manager System
+# Arquitetura do Task Manager System
 
-## 1. Visão Geral e Contexto do Sistema
+## Contexto
 
-O **Task Manager System** é uma plataforma distribuída de gerenciamento de tarefas baseada em uma **Arquitetura de
-Microsserviços em Go (Golang)** e uma interface **Single Page Application (SPA) em Angular**. O sistema foi projetado
-para suportar alta concorrência de acessos, com isolamento de domínios, processamento assíncrono de eventos e
-observabilidade ponta a ponta.
+O sistema contém uma SPA Angular servida por NGINX e três serviços Go:
 
-### Ecossistema do Sistema
+- `service-identity`: cadastro, login, JWT e PostgreSQL próprio.
+- `service-task`: CRUD de tarefas, PostgreSQL próprio e publicação de `task.created`.
+- `service-notification`: consumo AMQP e registro do evento recebido.
 
-* **Frontend:** Single Page Application desenvolvida em **Angular** (servida via NGINX em produção).
-* **Service Identity (`service-identity`):** Microsserviço em **Go** responsável por autenticação, emissão e validação
-  de tokens JWT.
-* **Service Task (`service-task`):** Microsserviço em **Go** para gestão de projetos, tarefas, prazos e atribuições.
-* **Service Notification (`service-notification`):** Microsserviço em **Go** para consumo assíncrono de eventos de
-  notificação.
-* **Infraestrutura de Apoio:** PostgreSQL (1 banco isolado por serviço), RabbitMQ (Mensageria AMQP com DLQ) e
-  OpenTelemetry Collector (Coleta de métricas e traces para Prometheus, Tempo e Grafana).
+RabbitMQ desacopla criação de tarefas do consumidor. OpenTelemetry Collector, Tempo, Prometheus e Grafana formam a stack
+local de telemetria. Os três serviços exportam traces OTLP/gRPC para `http://otel-collector:4317` (definido no Compose
+via `OTEL_EXPORTER_OTLP_ENDPOINT`); sem essa variável, a instrumentação é desativada e o serviço inicia normalmente.
 
----
+## Fluxos
 
-## 2. Rastreabilidade das Decisões Arquiteturais (Mapeamento de ADRs)
+### HTTP
 
-Toda a estrutura do sistema é fundamentada nos Architecture Decision Records (ADRs) documentados no repositório:
+O frontend é a entrada da aplicação em `:8081`. O NGINX encaminha `/api/identity`, `/api/tasks` e
+`/api/notifications` aos serviços pela rede `edge`. As portas diretas `8082`, `8083` e `8084` existem para diagnóstico
+local e aceitam conexões somente em `127.0.0.1`.
 
-| ID ADR       | Título / Decisão Arquitetural                              | Impacto na Arquitetura                                                                             |
-|--------------|------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| **ADR-0001** | Padrão *Database-per-Service* com PostgreSQL               | Desacoplamento de dados; isolamento de falhas entre `service-identity` e `service-task`.           |
-| **ADR-0002** | Rastreamento Distribuído (`x-correlation-id` e `log/slog`) | Rastreabilidade fim-a-fim do Frontend até filas AMQP usando logs JSON nativos do Go.               |
-| **ADR-0003** | Comunicação Assíncrona via RabbitMQ com DLQ                | Cumprimento de SLOs de latência na criação de tarefas e resiliência via Dead Letter Queue.         |
-| **ADR-0004** | Adoção de Arquitetura de Microsserviços                    | Autonomia de deploy, escalabilidade horizontal seletiva e isolamento de domínios.                  |
-| **ADR-0005** | Framework Frontend Angular                                 | Padronização arquitetural com TypeScript, interceptors HTTP globais e injeção de dependência.      |
-| **ADR-0006** | Linguagem Go (Golang) para o Backend                       | Altíssimo throughput, baixíssimo consumo de memória RAM (< 30MB) e inicialização em milissegundos. |
-| **ADR-0007** | Autenticação Stateless via JSON Web Tokens (JWT)           | Validação descentralizada de credenciais em Go sem dependência de chamadas síncronas de rede.      |
-| **ADR-0008** | Containerização via Docker Compose e Multi-Stage Build     | Reprodutibilidade total do ambiente com binários estáticos pequenos em containers Linux leves.     |
+### Eventos
 
----
+`service-task` grava a tarefa e o evento em `task_outbox` na mesma transação. Um dispatcher reivindica eventos pendentes
+com lease de 30s, publica com publisher confirms e `mandatory`, e agenda retry com backoff exponencial em caso de falha.
+A exchange `tasks` é `topic` e a fila durável `task.events` usa `tasks.dlx` como dead-letter exchange.
+`service-notification` confirma eventos válidos; JSON inválido recebe `Nack(requeue=false)` e vai para `task.events.dlq`.
+O consumidor não faz retry próprio: falhas de Ack/Nack encerram o consumo para o supervisor reiniciar a conexão. A
+entrega é at-least-once; consumidores devem deduplicar por `MessageId`/`event_id`.
 
-## 3. Objetivos de Nível de Serviço (SLOs)
+### Correlação
 
-Com a adoção do Go no backend, os SLOs de latência e throughput definidos para a aplicação são:
+`x-correlation-id` é um ID de aplicação:
 
-* **SLO-01 (Latência GET Tarefas):** 95% das requisições de consulta de tarefas (`GET /tasks`) devem responder em menos
-  de **150ms** ($p_{95} \le 150\text{ms}$).
-* **SLO-02 (Latência POST Criar Tarefa):** 99% das requisições de criação de tarefas (`POST /tasks`) devem responder em
-  menos de **300ms** ($p_{99} \le 300\text{ms}$).
-* **SLO-03 (Disponibilidade):** O sistema deve manter **99.5% de disponibilidade** geral mensurada via Health Checks.
-* **SLO-04 (Vazão / Throughput):** O endpoint central de tarefas deve suportar no mínimo **150 RPS** (operações por
-  segundo) sem degradação do $p_{95}$.
+- o frontend gera UUID v4;
+- middlewares Go capturam ou geram o valor e o incluem na resposta e nos logs JSON;
+- o publicador o inclui no header AMQP e o consumidor o extrai.
 
----
+`x-correlation-id` é um identificador de aplicação e continua separado do W3C Trace Context. A instrumentação
+OpenTelemetry propaga `traceparent`/`tracestate` em HTTP e nos headers AMQP, criando spans para requisições HTTP,
+publicação, dispatch do outbox e consumo. Os logs continuam indexados por `correlation_id`, não por `trace_id`.
 
-## 4. Estratégia de Observabilidade Distribuída
+## Observabilidade
 
-1. **Health Check Standard (`GET /health`):** Todos os microsserviços Go expõem uma rota `/health` checando
-   conectividade ativa com recursos dependentes (PostgreSQL e RabbitMQ).
-2. **Correlation ID Propagado:**
+O Collector aceita OTLP/gRPC em `0.0.0.0:4317` e OTLP/HTTP em `0.0.0.0:4318` dentro da rede `telemetry`. Pipelines usam
+`memory_limiter` antes de `batch`:
 
-* O frontend Angular gera um UUID v4 no header `x-correlation-id` em todas as chamadas `HttpClient`.
-* Os middlewares HTTP em Go capturam e registram o ID usando o logger estruturado nativo do Go (`log/slog`).
-* Quando o `service-task` publica eventos no RabbitMQ, o `x-correlation-id` é injetado nos cabeçalhos AMQP
-  (`amqp.Table`) para ser extraído pelo consumidor `service-notification`.
+- traces: Collector -> exporter `otlp/tempo` -> Tempo;
+- métricas: Collector -> exporter Prometheus em `:8889` -> scrape pelo Prometheus.
 
+Tempo 3.1.1 roda em modo monolítico (`target=all`), recebe OTLP em binds explícitos, grava WAL/blocos em `/var/tempo`,
+usa backend local e retenção de 24 horas. Prometheus mantém TSDB por 7 dias. Grafana recebe datasources provisionados
+para ambos. Loki não está implantado; logs são lidos com `docker compose logs`.
 
-3. **Telemetria Centralizada:**
+Os serviços usam `otelhttp` no servidor HTTP e spans manuais na publicação/consumo AMQP e no dispatch do outbox, portanto
+traces aparecem no Tempo/Grafana. Ainda não há SDK de métricas nas aplicações: o Prometheus coleta apenas as métricas
+internas do Collector, não métricas de negócio ou de runtime dos serviços.
 
-* **Metrics:** Exportação Prometheus para métricas de runtime do Go (Goroutines, uso de memória, GC).
-* **Traces:** Spans OpenTelemetry enviados via OTLP/gRPC ao Grafana Tempo.
+## Segurança e isolamento
 
----
+- Variáveis obrigatórias em `.env` fornecem senhas dos bancos, RabbitMQ, JWT e Grafana; o Compose rejeita ausência.
+- RabbitMQ usa usuário próprio, não `guest`.
+- `identity-data`, `task-data`, `messaging` e `telemetry` são redes internas separadas; cada serviço entra apenas nas
+  redes de que precisa, e todos entram em `telemetry` para exportar OTLP.
+- Somente o frontend publica porta em todas as interfaces. APIs e consoles administrativos usam loopback.
+- Bancos e serviços de telemetria não publicam portas no host.
+- Contexts Docker excluem segredos e artefatos locais.
 
-## 5. Estratégia de Segurança
+O transporte interno usa HTTP/AMQP sem TLS porque esta é uma stack local de desenvolvimento. Produção exige secrets
+manager, TLS, backend de objetos para Tempo, autenticação dos endpoints de telemetria e política de rede do orquestrador.
 
-* **Autenticação Stateless:** Tokens JWT com HMAC-SHA256 gerados pelo `service-identity` contendo `claims` de
-  identificação do usuário.
-* **Isolamento de Dados (*Least Privilege*):** Cada container Go conecta-se exclusivamente ao seu próprio banco no
-  PostgreSQL através de credenciais distintas.
-* **Containers Seguros:** Imagens Docker compiladas via *Multi-Stage Build* gerando executáveis estáticos executados sob
-  usuários não-root em containers minimalistas.
+## Persistência e ciclo de vida
+
+Volumes nomeados preservam PostgreSQL, RabbitMQ, Tempo, Prometheus e Grafana. Todos os serviços usam
+`restart: unless-stopped`. Dependências críticas usam healthchecks e `depends_on.condition: service_healthy`. `down`
+preserva os volumes; `down -v` os apaga.
+
+## Limites conhecidos
+
+- SLOs de latência, vazão e disponibilidade não são garantidos: não há teste de carga nem alertas que os comprovem.
+- O consumidor não envia e-mail, push ou webhook; registra `notification_received`.
+- Não há retry no consumidor; o publisher usa outbox com retry/backoff e entrega at-least-once.
+- Logs não são centralizados e não incluem `trace_id`/`span_id`.
+- Os Dockerfiles usam usuário não-root e builds sem fallback silencioso; o pin por digest das imagens-base ainda não é
+  aplicado (tags de versão são usadas).
+
+## ADRs
+
+Decisões ficam em [`docs/adrs`](adrs/). ADR-0002 separa correlação de aplicação de W3C Trace Context; ADR-0003 descreve
+semântica real da DLQ; ADR-0011 registra hardening e segmentação da stack local.

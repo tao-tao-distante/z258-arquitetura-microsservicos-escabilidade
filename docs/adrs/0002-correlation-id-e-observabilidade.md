@@ -1,49 +1,42 @@
-# 0002 - Rastreamento Distribuído com Correlation ID, log/slog e OpenTelemetry Go
+# 0002 - Correlação de aplicação e base para OpenTelemetry
+
+## Status
+
+Aceito, com instrumentação OpenTelemetry de traces implementada.
 
 ## Context and Problem Statement
 
-Em uma arquitetura distribuída com chamadas síncronas e assíncronas (RabbitMQ), torna-se extremamente difícil depurar
-erros e analisar a latência entre a interface Angular e os microsserviços em Go sem rastreamento ponta a ponta.
+Requisições HTTP e eventos AMQP precisam de um identificador pesquisável nos logs. Rastreamento distribuído também é
+desejável, mas correlação de logs e W3C Trace Context são mecanismos diferentes.
 
 ## Decision Drivers
 
-* Requisito obrigatório de projeto: rastreabilidade e logs estruturados em JSON contendo Correlation ID.
-* Diagnóstico rápido de gargalos de performance e validação dos SLOs ($p_{95} \le 150\text{ms}$).
-* Uso das bibliotecas nativas de Go (`log/slog` e `go.opentelemetry.io/otel`).
-
-## Considered Options
-
-* **Opção 1:** OpenTelemetry SDK com propagação do header W3C `x-correlation-id` e logs estruturados em JSON via
-  `log/slog`.
-* **Opção 2:** Logs puramente locais via `fmt.Println` sem identificador de correlação.
+- Logs JSON devem conter `correlation_id`.
+- O identificador deve atravessar frontend, APIs e RabbitMQ.
+- A infraestrutura deve aceitar métricas e traces OTLP quando as aplicações forem instrumentadas.
 
 ## Decision Outcome
 
-Chosen option: "**Opção 1: OpenTelemetry SDK com propagação de x-correlation-id e log/slog**", pois atende aos
-requisitos de observabilidade distribuída e integra-se diretamente ao Prometheus/Tempo/Grafana.
+Usar `x-correlation-id` como identificador de aplicação e `log/slog` para logs estruturados. O frontend gera UUID v4;
+middlewares Go capturam ou geram o valor; `service-task` e `service-notification` o propagam em header AMQP.
 
-### Consequences
+`x-correlation-id` não é header W3C. O SDK OpenTelemetry propaga `traceparent`/`tracestate` em HTTP e nos headers AMQP.
+Os serviços criam spans no servidor HTTP (`otelhttp`), na publicação/consumo RabbitMQ e no dispatch do outbox. Os logs
+permanecem indexados por `correlation_id`; `trace_id`/`span_id` ainda não são adicionados aos logs.
 
-* Good, porque permite rastrear uma requisição individual desde o clique na interface Angular até o processamento em Go
-  e a fila do RabbitMQ.
-* Good, porque padroniza todos os logs no formato JSON com a chave `"correlation_id"`.
-* Bad, porque exige repassar o `context.Context` em todas as chamadas de funções e requisições HTTP em Go.
+Collector, Tempo, Prometheus e Grafana são provisionados. Os serviços exportam traces OTLP quando
+`OTEL_EXPORTER_OTLP_ENDPOINT` está definido (o Compose aponta para `http://otel-collector:4317`). Métricas de runtime
+e de negócio ainda não são exportadas pelas aplicações; o Prometheus coleta apenas métricas internas do Collector.
 
-### Confirmation
+## Consequences
 
-Será confirmado emitindo uma requisição HTTP contendo o cabeçalho `x-correlation-id: test-123` e validando a presença
-desse mesmo ID nos logs JSON gerados no `stdout` dos microsserviços.
+- Good: uma requisição e seu evento podem ser localizados nos logs por `correlation_id`.
+- Good: traces HTTP, AMQP e de dispatch do outbox são exportados para o Tempo e permitem visualizar a árvore de spans.
+- Bad: `correlation_id` e `trace_id` são independentes; não há link direto entre log e trace.
+- Bad: métricas de aplicação não são exportadas e logs ficam apenas no `stdout`; Loki não faz parte da solução.
 
-## Pros and Cons of the Options
+## Confirmation
 
-### Opção 1: OpenTelemetry + Correlation ID + log/slog
-
-* Good, porque oferece visibilidade fim-a-fim da jornada da requisição.
-* Good, porque simplifica a busca por falhas em ferramentas centrais como Grafana/Loki/Tempo.
-* Bad, porque exige a criação de HTTP Middlewares em Go e interceptores no Angular.
-
-### Opção 2: Logs Locais Não Estruturados
-
-* Good, porque é trivial de implementar sem dependências externas.
-* Bad, porque torna praticamente impossível correlacionar eventos em requisições concorrentes.
-* Bad, porque viola os requisitos arquiteturais estipulados para a avaliação.
+Enviar `x-correlation-id: test-123`, verificar o mesmo header na resposta e buscar `test-123` nos logs do serviço e do
+consumidor. Subir a stack com `OTEL_EXPORTER_OTLP_ENDPOINT` definido e confirmar no Tempo/Grafana os spans de
+`service-identity`, `service-task` e `service-notification`, incluindo o span de consumo AMQP.

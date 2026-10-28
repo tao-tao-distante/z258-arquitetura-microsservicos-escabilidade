@@ -73,3 +73,19 @@ fabric.properties
 # Android studio 3.1+ serialized cache file
 .idea/caches/build_file_checksums.ser
 
+
+### Go
+coverage.out
+*.test
+
+### Node / Angular
+node_modules/
+dist/
+.angular/
+
+### Env
+.env
+.env.*
+!.env.example
+!**/.env.example
+!**/certs/**

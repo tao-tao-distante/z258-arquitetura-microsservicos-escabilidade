@@ -2,13 +2,13 @@
 
 ## Context and Problem Statement
 
-Para cumprir os SLOs de latência rigorosos (p95 <= 150ms e p99 <= 300ms) e manter um consumo reduzido de recursos no
-ambiente Docker, os microsserviços backend (`service-identity`, `service-task` e `service-notification`) precisam de
-alta performance de I/O, tempos de inicialização quase instantâneos e pegada de memória mínima.
+Os microsserviços backend (`service-identity`, `service-task` e `service-notification`) precisam de concorrência para I/O,
+binários simples de distribuir e consumo de recursos mensurável no ambiente Docker. Metas de latência e vazão dependem
+de benchmark e teste de carga; a escolha da linguagem, isoladamente, não as comprova.
 
 ## Decision Drivers
 
-* Baixíssimo consumo de CPU e memória RAM por container.
+* Potencial de baixo consumo de CPU e memória por container, sujeito a medição.
 * Compilação estática gerando um único binário executável sem dependência de runtime (permitindo imagens Docker
   minimalistas baseadas em `alpine` ou `scratch`).
 * Concorrência nativa eficiente via Goroutines e Channels.
@@ -22,14 +22,13 @@ alta performance de I/O, tempos de inicialização quase instantâneos e pegada 
 
 ## Decision Outcome
 
-Chosen option: "**Opção 2: Go (Golang)**", pois oferece performance de linguagem compilada com sintaxe simples,
-excelente suporte à concorrência e inicialização imediata, ideal para arquiteturas de microsserviços de alta vazão.
+Chosen option: "**Opção 2: Go (Golang)**", pois oferece linguagem compilada com sintaxe simples, suporte à concorrência
+e geração de binário único.
 
 ### Consequences
 
-* Good, porque os containers sobem em milissegundos e consomem pouquíssima memória (< 30MB RAM por serviço).
 * Good, porque possibilita criar imagens Docker extremamente pequenas (binário estático distribuído).
-* Good, porque atende com margem folgada aos SLOs de latência e throughput do projeto.
+* Neutral, porque latência, vazão, memória e inicialização precisam ser medidas; não há benchmark registrado.
 * Bad, porque exige tratamento de erros explícito (`if err != nil`) em todas as camadas de I/O.
 
 ### Confirmation
@@ -42,15 +41,14 @@ memória no `docker stats`.
 ### Opção 1: Node.js com NestJS
 
 * Good, porque compartilha a linguagem TypeScript com o frontend Angular.
-* Bad, porque possui maior consumo de memória RAM por container e inicialização mais lenta.
+* Neutral, porque diferenças de memória e inicialização dependeriam de implementação e benchmark comparável.
 
 ### Opção 2: Go (Golang)
 
-* Good, porque entrega performance e vazão de requisições por segundo (RPS) superiores.
-* Good, porque a concorrência com Goroutines trata I/O de banco e mensagens de forma ultraleve.
+* Good, porque Goroutines e biblioteca padrão oferecem primitivas adequadas para I/O concorrente.
 * Bad, porque possui tratamento de erros explícito que aumenta a verbosidade do código.
 
 ### Opção 3: Java com Spring Boot
 
 * Good, porque possui o ecossistema corporativo mais maduro da indústria.
-* Bad, porque o consumo de memória e o tempo de cold start inviabilizam execuções ultraleves no Docker Compose.
+* Neutral, porque consumo de memória e cold start dependeriam de implementação e medição comparável.

@@ -10,7 +10,7 @@ microsserviços.
 
 * Padronização arquitetural nativa (injeção de dependência, módulos, roteamento).
 * Suporte nativo ao TypeScript para garantia de contratos de API.
-* Facilidade para instrumentação de rastreamento distribuído (`@opentelemetry/sdk-trace-web`).
+* Interceptors HTTP para autenticação e correlação de aplicação.
 
 ## Considered Options
 
@@ -32,8 +32,8 @@ Chosen option: "**Opção 2: Angular Framework**", pois oferece uma estrutura ar
 
 ### Confirmation
 
-A conformidade será verificada através de linting estrito (`eslint`), testes unitários e validação dos builds na pasta
-`/frontend`.
+A conformidade é verificada por testes existentes e pelo build Angular com TypeScript `strict` e `strictTemplates`.
+Não há script ESLint nem SDK OpenTelemetry instalados atualmente.
 
 ## Pros and Cons of the Options
 
