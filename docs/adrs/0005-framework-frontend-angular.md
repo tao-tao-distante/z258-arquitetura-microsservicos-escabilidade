@@ -29,7 +29,7 @@ microsserviços.
 ## Resultado da Decisão
 
 Opção escolhida: "**Opção 2: Angular Framework**", pois oferece uma estrutura arquitetural completa e opinativa
-"out-of-the-box", reduzindo divergências de padrões no projeto.
+nativas, reduzindo divergências de padrões no projeto.
 
 ### Consequências
 

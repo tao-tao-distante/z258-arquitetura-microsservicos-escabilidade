@@ -55,7 +55,7 @@ verificado que uma falha de publicação mantém o evento pendente no outbox at�
 
 ### Opção 2: Mensageria Assíncrona via RabbitMQ (Com DLQ)
 
-* Bom, because desacopla o tempo de resposta do endpoint da execução do efeito colateral (notificação).
+* Bom, porque desacopla o tempo de resposta do endpoint da execução do efeito colateral (notificação).
 * Bom, porque eventos rejeitados com `Nack(requeue=false)` são encaminhados para a Dead Letter Queue.
 * Bom, porque o outbox transacional evita perda de eventos entre o commit do banco e a publicação.
 * Neutro, porque a entrega é at-least-once; consumidores devem deduplicar por `MessageId`/`event_id`.

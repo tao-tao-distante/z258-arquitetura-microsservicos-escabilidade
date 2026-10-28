@@ -112,8 +112,8 @@ notificação externa implementada.
 ## Correlação e telemetria
 
 - `x-correlation-id` é um identificador de aplicação para logs e eventos, não um header W3C Trace Context.
-- O frontend gera UUID v4; os serviços devolvem o header, armazenam o valor no `context.Context` e registram
-  `correlation_id` nos logs JSON.
+- O frontend gera UUID v4; os serviços aceitam apenas UUIDs v4 válidos, devolvem o header, armazenam o valor no
+  `context.Context` e registram `correlation_id` nos logs JSON. Header ausente ou inválido é substituído por UUID v4.
 - O `service-task` copia `x-correlation-id` para o header AMQP e o consumidor o extrai.
 - W3C Trace Context (`traceparent`/`tracestate`) é propagado via `otelhttp`; spans são exportados por OTLP/gRPC quando
   `OTEL_EXPORTER_OTLP_ENDPOINT` está definido. Sem o endpoint, a exportação fica desabilitada e a aplicação segue com

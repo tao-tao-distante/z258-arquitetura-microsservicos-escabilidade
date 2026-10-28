@@ -14,84 +14,56 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
 )
 
-func TestCorrelationExistingHeader(t *testing.T) {
-	var got string
-	h := Correlation(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = correlation.FromContext(r.Context())
-		w.WriteHeader(http.StatusOK)
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set(HeaderCorrelationID, "abc")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	require.Equal(t, "abc", got)
-	require.Equal(t, "abc", rec.Header().Get(HeaderCorrelationID))
-}
-
-func TestCorrelationGeneratesWhenMissing(t *testing.T) {
-	var got string
-	h := Correlation(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = correlation.FromContext(r.Context())
-	}))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	require.NotEmpty(t, got)
-	require.Equal(t, got, rec.Header().Get(HeaderCorrelationID))
-}
-
-func TestCorrelationPreservesIDAlreadyInContext(t *testing.T) {
-	var got string
-	h := Correlation(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		got = correlation.FromContext(r.Context())
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(
-		correlation.NewContext(context.Background(), "outer-cid"),
+func TestCorrelation(t *testing.T) {
+	const (
+		validHeader = "646a4ca0-94d8-4f4a-b0f0-31fb0ac7b31d"
+		validCtx    = "0b3c3b8e-1f9a-4f3e-9d39-2f6a0c8f5d21"
 	)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	require.Equal(t, "outer-cid", got)
-	require.Equal(t, "outer-cid", rec.Header().Get(HeaderCorrelationID))
-}
+	tests := []struct {
+		name        string
+		header      string
+		ctxID       string
+		want        string
+		wantNewUUID bool
+	}{
+		{name: "keeps valid header", header: validHeader, want: validHeader},
+		{name: "generates when header missing", wantNewUUID: true},
+		{name: "replaces invalid header", header: "not-a-uuid", wantNewUUID: true},
+		{name: "keeps valid id from context", ctxID: validCtx, want: validCtx},
+		{name: "replaces invalid id from context", ctxID: "outer-cid", wantNewUUID: true},
+		{name: "prefers valid header over context", header: validHeader, ctxID: validCtx, want: validHeader},
+		{name: "falls back to context when header invalid", header: "not-a-uuid", ctxID: validCtx, want: validCtx},
+	}
 
-func TestCorrelationUUIDAcceptsValidHeader(t *testing.T) {
-	const valid = "646a4ca0-94d8-4f4a-b0f0-31fb0ac7b31d"
-	var got string
-	h := CorrelationUUID(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		got = correlation.FromContext(r.Context())
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set(HeaderCorrelationID, valid)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	require.Equal(t, valid, got)
-	require.Equal(t, valid, rec.Header().Get(HeaderCorrelationID))
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got string
+			h := Correlation(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				got = correlation.FromContext(r.Context())
+			}))
+			ctx := context.Background()
+			if tt.ctxID != "" {
+				ctx = correlation.NewContext(ctx, tt.ctxID)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+			if tt.header != "" {
+				req.Header.Set(HeaderCorrelationID, tt.header)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
 
-func TestCorrelationUUIDGeneratesWhenMissing(t *testing.T) {
-	var got string
-	h := CorrelationUUID(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		got = correlation.FromContext(r.Context())
-	}))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	_, err := uuid.Parse(got)
-	require.NoError(t, err)
-	require.Equal(t, got, rec.Header().Get(HeaderCorrelationID))
-}
-
-func TestCorrelationUUIDReplacesInvalid(t *testing.T) {
-	var got string
-	h := CorrelationUUID(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		got = correlation.FromContext(r.Context())
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set(HeaderCorrelationID, "invalid")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	require.NotEqual(t, "invalid", got)
-	_, err := uuid.Parse(got)
-	require.NoError(t, err)
-	require.Equal(t, got, rec.Header().Get(HeaderCorrelationID))
+			if tt.wantNewUUID {
+				_, err := uuid.Parse(got)
+				require.NoError(t, err)
+				require.NotEqual(t, tt.header, got)
+				require.NotEqual(t, tt.ctxID, got)
+			} else {
+				require.Equal(t, tt.want, got)
+			}
+			require.Equal(t, got, rec.Header().Get(HeaderCorrelationID))
+		})
+	}
 }
 
 func TestLoggingEmitsFields(t *testing.T) {

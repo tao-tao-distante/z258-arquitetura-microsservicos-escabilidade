@@ -22,7 +22,8 @@ desejável, mas correlação de logs e W3C Trace Context são mecanismos diferen
 ## Resultado da Decisão
 
 Usar `x-correlation-id` como identificador de aplicação e `log/slog` para logs estruturados. O frontend gera UUID v4;
-middlewares Go capturam ou geram o valor; `service-task` e `service-notification` o propagam em header AMQP.
+middlewares Go aceitam apenas UUIDs v4 válidos e geram um novo quando o header está ausente ou inválido. `service-task` e
+`service-notification` propagam o mesmo valor em header AMQP.
 
 `x-correlation-id` não é header W3C. O SDK OpenTelemetry propaga `traceparent`/`tracestate` em HTTP e nos headers AMQP.
 Os serviços criam spans no servidor HTTP (`otelhttp`), na publicação/consumo RabbitMQ e no dispatch do outbox. Os logs
@@ -34,13 +35,14 @@ e de negócio ainda não são exportadas pelas aplicações; o Prometheus coleta
 
 ## Consequências
 
-- Good: uma requisição e seu evento podem ser localizados nos logs por `correlation_id`.
-- Good: traces HTTP, AMQP e de dispatch do outbox são exportados para o Tempo e permitem visualizar a árvore de spans.
-- Bad: `correlation_id` e `trace_id` são independentes; não há link direto entre log e trace.
-- Bad: métricas de aplicação não são exportadas e logs ficam apenas no `stdout`; Loki não faz parte da solução.
+- Bom: uma requisição e seu evento podem ser localizados nos logs por `correlation_id`.
+- Bom: traces HTTP, AMQP e de dispatch do outbox são exportados para o Tempo e permitem visualizar a árvore de spans.
+- Ruim: `correlation_id` e `trace_id` são independentes; não há link direto entre log e trace.
+- Ruim: métricas de aplicação não são exportadas e logs ficam apenas no `stdout`; Loki não faz parte da solução.
 
 ## Confirmação
 
-Enviar `x-correlation-id: test-123`, verificar o mesmo header na resposta e buscar `test-123` nos logs do serviço e do
-consumidor. Subir a stack com `OTEL_EXPORTER_OTLP_ENDPOINT` definido e confirmar no Tempo/Grafana os spans de
-`service-identity`, `service-task` e `service-notification`, incluindo o span de consumo AMQP.
+Enviar `x-correlation-id: 646a4ca0-94d8-4f4a-b0f0-31fb0ac7b31d`, verificar o mesmo header na resposta e buscar o
+valor nos logs do serviço e do consumidor. Enviar valor inválido e confirmar que a resposta traz um UUID v4 novo, usado
+também no evento AMQP. Subir a stack com `OTEL_EXPORTER_OTLP_ENDPOINT` definido e confirmar no Tempo/Grafana os spans
+de `service-identity`, `service-task` e `service-notification`, incluindo o span de consumo AMQP.

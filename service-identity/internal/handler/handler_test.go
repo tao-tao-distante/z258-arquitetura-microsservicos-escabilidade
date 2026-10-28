@@ -174,9 +174,10 @@ func TestInternalErrorLoggedOnceWithCorrelationID(t *testing.T) {
 	h := New(&fakeService{err: errors.New("boom")}, nil, log)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"a@b.com","password":"password"}`))
-	req.Header.Set("x-correlation-id", "cid")
+	const correlationID = "646a4ca0-94d8-4f4a-b0f0-31fb0ac7b31d"
+	req.Header.Set("x-correlation-id", correlationID)
 	h.Routes().ServeHTTP(rec, req)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	require.Equal(t, 1, bytes.Count(logs.Bytes(), []byte(`"msg":"internal_error"`)))
-	require.Contains(t, logs.String(), `"correlation_id":"cid"`)
+	require.Contains(t, logs.String(), `"correlation_id":"`+correlationID+`"`)
 }

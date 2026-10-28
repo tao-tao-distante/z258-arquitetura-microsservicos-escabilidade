@@ -34,7 +34,7 @@ entrega é at-least-once; consumidores devem deduplicar por `MessageId`/`event_i
 `x-correlation-id` é um ID de aplicação:
 
 - o frontend gera UUID v4;
-- middlewares Go capturam ou geram o valor e o incluem na resposta e nos logs JSON;
+- middlewares Go aceitam apenas UUIDs v4 válidos, geram um novo quando ausente ou inválido e o incluem na resposta e nos logs JSON;
 - o publicador o inclui no header AMQP e o consumidor o extrai.
 
 `x-correlation-id` é um identificador de aplicação e continua separado do W3C Trace Context. A instrumentação

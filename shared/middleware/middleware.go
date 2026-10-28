@@ -26,26 +26,13 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// Correlation captura ou gera o x-correlation-id e o propaga no contexto e na resposta.
+// Correlation aceita apenas UUID válido e gera um novo quando o header e o contexto são inválidos.
 func Correlation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(HeaderCorrelationID)
-		if id == "" {
+		if _, err := uuid.Parse(id); err != nil {
 			id = correlation.FromContext(r.Context())
 		}
-		if id == "" {
-			id = correlation.NewID()
-		}
-		ctx := correlation.NewContext(r.Context(), id)
-		w.Header().Set(HeaderCorrelationID, id)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// CorrelationUUID aceita apenas UUID válido e gera um novo quando ausente ou inválido.
-func CorrelationUUID(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := r.Header.Get(HeaderCorrelationID)
 		if _, err := uuid.Parse(id); err != nil {
 			id = correlation.NewID()
 		}

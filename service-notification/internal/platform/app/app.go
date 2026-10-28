@@ -66,10 +66,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, dial Dialer) 
 	go func() { consumerDone <- consumer.Start(runCtx) }()
 
 	health := newHealth(conn, ch, consumer)
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", health.Health)
-	httpHandler := otelhttp.NewHandler(middleware.CorrelationUUID(middleware.Logging(log)(mux)), "http.server")
-	srv := NewServer(cfg.Port, httpHandler)
+	srv := NewServer(cfg.Port, newHTTPHandler(health, log))
 	listener, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
 		cancel()
@@ -116,6 +113,12 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, dial Dialer) 
 		}
 	}
 	return errors.Join(runErr, shutdownErr)
+}
+
+func newHTTPHandler(health *handler.Health, log *slog.Logger) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", health.Health)
+	return otelhttp.NewHandler(middleware.Correlation(middleware.Logging(log)(mux)), "http.server")
 }
 
 func newHealth(conn Conn, ch Channel, consumer *handler.Consumer) *handler.Health {

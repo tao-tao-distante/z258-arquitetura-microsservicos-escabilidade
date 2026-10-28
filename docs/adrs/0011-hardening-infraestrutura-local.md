@@ -29,13 +29,13 @@ dados não persistentes para mensageria/observabilidade. Grafana também exigia 
 
 ## Consequências
 
-- Good: builds locais ficam reproduzíveis no nível das imagens de infraestrutura do Compose.
-- Good: falhas de configuração e ausência de segredos aparecem antes da inicialização.
-- Good: menor superfície de rede entre serviços e no host.
-- Good: reinícios não apagam estado operacional por padrão.
-- Bad: troca de senha de banco/RabbitMQ após criação de volumes exige rotação coordenada ou recriação dos volumes.
-- Bad: backend local do Tempo é adequado apenas para uma instância e desenvolvimento.
-- Bad: versões e correções de segurança precisam de atualização explícita.
+- Bom: builds locais ficam reproduzíveis no nível das imagens de infraestrutura do Compose.
+- Bom: falhas de configuração e ausência de segredos aparecem antes da inicialização.
+- Bom: menor superfície de rede entre serviços e no host.
+- Bom: reinícios não apagam estado operacional por padrão.
+- Ruim: troca de senha de banco/RabbitMQ após criação de volumes exige rotação coordenada ou recriação dos volumes.
+- Ruim: backend local do Tempo é adequado apenas para uma instância e desenvolvimento.
+- Ruim: versões e correções de segurança precisam de atualização explícita.
 
 ## Confirmação
 

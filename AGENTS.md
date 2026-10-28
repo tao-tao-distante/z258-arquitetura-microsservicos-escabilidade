@@ -65,7 +65,7 @@ Projeto usa as skills abaixo:
 
 ### Obrigatórios
 - **Logs estruturados**: Usar `log/slog` exclusivamente. Todos os logs em JSON com chave `correlation_id`. Extrair do `context.Context`.
-- **Correlation ID**: Middleware HTTP captura `x-correlation-id` (ou gera UUID v4). Propagar no `context.Context` e no header de resposta. Em eventos AMQP, injetar/extrair dos headers.
+- **Correlation ID**: Middleware HTTP aceita `x-correlation-id` apenas quando é UUID v4 válido; ausente ou inválido, gera um novo. Propagar no `context.Context` e no header de resposta. Em eventos AMQP, injetar/extrair dos headers.
 - **Tratamento de erros**: Sempre explícito com `if err != nil`. Sem `_` ignorando erros sem justificativa.
 - **Context**: Repassar `context.Context` em middlewares, handlers, repositórios, DB e clientes RabbitMQ.
 - **Idiomas Go**: Seguir `golang-project-layout`, `golang-code-style`, `golang-naming`, `golang-structs-interfaces`.
@@ -88,7 +88,7 @@ Projeto usa as skills abaixo:
 
 ## Metas de Qualidade
 - **Cobertura mínima agregada**: >= 95% por módulo Go (unitários e integração). Pacotes `cmd/` e `internal/domain` podem ficar abaixo isoladamente; a meta é o total do módulo.
-- Cobertura agregada atual por módulo (sem `-race`): `shared` 97.7%, `service-identity` 98.6%, `service-task` 98.3%, `service-notification` 95.3%.
+- Cobertura agregada atual por módulo (sem `-race`): `shared` 97.6%, `service-identity` 98.6%, `service-task` 98.3%, `service-notification` 95.3%.
 - Validar com: `go test -v -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`
 - Frontend: `npm run build` com `strict` e `strictTemplates`; não commitar `node_modules/`, `dist/`, `.angular/` ou `coverage.out`.
 - Smoke test manual: subir `docker compose up -d`, registrar usuário, criar/listar tarefa com JWT e confirmar log `notification_received` no `service-notification` com o `correlation_id` do evento.
