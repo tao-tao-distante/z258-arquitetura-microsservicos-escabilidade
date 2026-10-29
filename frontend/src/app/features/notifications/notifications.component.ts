@@ -5,54 +5,76 @@ import { environment } from '../../../environments/environment';
 @Component({
   selector: 'app-notifications',
   template: `
-    <section class="stack">
-      <div>
-        <h1 style="margin: 0;">Notificações</h1>
-        <p class="muted" style="margin: 0.25rem 0 0;">
-          Eventos assíncronos processados pelo service-notification via RabbitMQ.
-        </p>
-      </div>
+    <section class="page">
+      <header>
+        <h1 class="page-title">Atividades</h1>
+        <p class="page-subtitle">O que o sistema processou em segundo plano.</p>
+      </header>
 
-      <div class="card row" style="justify-content: space-between;">
-        <div>
-          <strong>Consumidor AMQP</strong>
-          <p class="muted" style="margin: 0.25rem 0 0;">
-            Fila <code>task.events</code> · DLQ habilitada · correlação por
+      <div class="grid">
+        <section class="card health">
+          <div class="health-head">
+            <span class="eyebrow">CONSUMIDOR AMQP</span>
+            <span [class]="'status-band ' + tone()" role="status" aria-live="polite">
+              {{ healthLabel() }}
+            </span>
+          </div>
+          <h2>{{ healthTitle() }}</h2>
+          <p class="muted">
+            Fila <code>task.events</code> · DLQ <code>task.events.dlq</code> · correlação por
             <code>x-correlation-id</code>
           </p>
-        </div>
-        <span
-          class="pill"
-          [class.up]="health() === 'online'"
-          [class.down]="health() === 'offline'"
-          role="status"
-          aria-live="polite"
-        >
-          {{ healthLabel() }}
-        </span>
+        </section>
+
+        <section class="card pipeline">
+          <span class="eyebrow">PIPELINE</span>
+          <ol>
+            <li><span>01</span> Tarefa criada no service-task</li>
+            <li><span>02</span> Evento gravado na outbox</li>
+            <li><span>03</span> Publicação no RabbitMQ</li>
+            <li><span>04</span> Consumo e confirmação</li>
+          </ol>
+        </section>
       </div>
 
-      <div class="card stack">
-        <h2 style="margin: 0; font-size: 1rem;">Disponibilidade do serviço</h2>
-        <p class="muted" style="margin: 0;">
-          Esta tela consulta apenas o endpoint de saúde. O backend atual não fornece histórico ou feed
-          de notificações para exibição.
+      <section class="card note">
+        <span class="eyebrow">NOTA</span>
+        <p class="muted">
+          Esta tela consulta apenas o endpoint de saúde do service-notification. O backend atual não
+          expõe histórico ou feed de eventos para exibição.
         </p>
-      </div>
+      </section>
     </section>
   `,
   styles: [
     `
-      .pill {
-        border-radius: 999px;
-        padding: 0.25rem 0.7rem;
-        font-size: 0.75rem;
-        font-weight: 700;
-        border: 1px solid var(--border);
+      .page { display: grid; gap: 26px; }
+      .grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
+      .health { display: grid; gap: 12px; padding: 26px; }
+      .health-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+      .health h2 { font-size: 24px; }
+      .health .muted { font-size: 12.5px; line-height: 1.7; }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.92em;
+        background: #eef0e8;
+        padding: 1px 5px;
+        border-radius: 2px;
       }
-      .pill.up { color: var(--ok); }
-      .pill.down { color: var(--danger); }
-      code { color: var(--accent); }
+      .pipeline { display: grid; gap: 14px; padding: 26px; }
+      .pipeline ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+      .pipeline li { display: flex; gap: 12px; font-size: 12.5px; color: var(--muted); }
+      .pipeline li span {
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        color: var(--pine);
+        min-width: 18px;
+      }
+      .note { display: grid; gap: 8px; padding: 22px 26px; }
+      .note .muted { font-size: 12.5px; }
+      @media (max-width: 900px) {
+        .grid { grid-template-columns: 1fr; }
+      }
     `,
   ],
 })
@@ -69,6 +91,18 @@ export class NotificationsComponent implements OnInit {
   }
 
   healthLabel(): string {
-    return { checking: 'verificando', online: 'online', offline: 'offline' }[this.health()];
+    return { checking: 'VERIFICANDO', online: 'ONLINE', offline: 'OFFLINE' }[this.health()];
+  }
+
+  healthTitle(): string {
+    return {
+      checking: 'Verificando disponibilidade…',
+      online: 'Consumidor ativo e saudável.',
+      offline: 'Consumidor indisponível.',
+    }[this.health()];
+  }
+
+  tone(): string {
+    return this.health() === 'online' ? 'done' : this.health() === 'offline' ? 'todo' : 'doing';
   }
 }

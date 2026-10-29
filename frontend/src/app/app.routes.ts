@@ -2,7 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
-  { path: '', pathMatch: 'full', redirectTo: 'tasks' },
+  { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
   {
     path: 'login',
     loadComponent: () =>
@@ -16,18 +16,27 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'dashboard',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/dashboard/dashboard-page.component').then(
+        (m) => m.DashboardPageComponent,
+      ),
+  },
+  {
     path: 'tasks',
     canActivate: [authGuard],
     loadChildren: () =>
       import('./features/tasks/tasks.routes').then((m) => m.TASK_ROUTES),
   },
   {
-    path: 'notifications',
+    path: 'activities',
     canActivate: [authGuard],
     loadComponent: () =>
       import('./features/notifications/notifications.component').then(
         (m) => m.NotificationsComponent,
       ),
   },
-  { path: '**', redirectTo: 'tasks' },
+  { path: 'notifications', pathMatch: 'full', redirectTo: 'activities' },
+  { path: '**', redirectTo: 'dashboard' },
 ];

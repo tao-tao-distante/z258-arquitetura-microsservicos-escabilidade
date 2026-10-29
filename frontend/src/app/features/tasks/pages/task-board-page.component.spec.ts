@@ -1,10 +1,12 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { Subject, of } from 'rxjs';
+import { provideRouter } from '@angular/router';
+import { of, throwError } from 'rxjs';
 import { TaskDataService } from '../services/task-data.service';
 import { TaskBoardPageComponent } from './task-board-page.component';
 import { Task } from '../models/task.model';
 
-const task: Task = {
+const base: Task = {
   id: 1,
   user_id: 1,
   title: 'Test',
@@ -15,28 +17,42 @@ const task: Task = {
 };
 
 describe('TaskBoardPageComponent', () => {
-  it('keeps pending state per task and ignores duplicate actions', () => {
-    const updateResult = new Subject<Task>();
+  it('groups loaded tasks by status', () => {
     const data = {
-      list: vi.fn(() => of([task])),
-      create: vi.fn(),
-      update: vi.fn(() => updateResult),
-      remove: vi.fn(),
+      list: vi.fn(() =>
+        of([
+          { ...base, id: 1, status: 'todo' as const },
+          { ...base, id: 2, status: 'doing' as const },
+          { ...base, id: 3, status: 'done' as const },
+        ]),
+      ),
     };
     TestBed.configureTestingModule({
       imports: [TaskBoardPageComponent],
-      providers: [{ provide: TaskDataService, useValue: data }],
+      providers: [provideRouter([]), { provide: TaskDataService, useValue: data }],
     });
     const component = TestBed.createComponent(TaskBoardPageComponent).componentInstance;
     component.ngOnInit();
 
-    component.advance(task);
-    component.advance(task);
+    expect(component.byStatus('todo').map((task) => task.id)).toEqual([1]);
+    expect(component.byStatus('doing').map((task) => task.id)).toEqual([2]);
+    expect(component.byStatus('done').map((task) => task.id)).toEqual([3]);
+  });
 
-    expect(component.isPending(task.id)).toBe(true);
-    expect(data.update).toHaveBeenCalledOnce();
-    updateResult.next({ ...task, status: 'doing' });
-    updateResult.complete();
-    expect(component.isPending(task.id)).toBe(false);
+  it('reports an oversized payload for a 413 response', () => {
+    const data = {
+      list: vi.fn(() =>
+        throwError(() => new HttpErrorResponse({ status: 413, statusText: 'Payload Too Large' })),
+      ),
+    };
+    TestBed.configureTestingModule({
+      imports: [TaskBoardPageComponent],
+      providers: [provideRouter([]), { provide: TaskDataService, useValue: data }],
+    });
+    const component = TestBed.createComponent(TaskBoardPageComponent).componentInstance;
+
+    component.ngOnInit();
+
+    expect(component.error()).toBe('O conteúdo enviado excede o limite permitido.');
   });
 });
