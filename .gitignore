@@ -82,6 +82,7 @@ coverage.out
 node_modules/
 dist/
 .angular/
+coverage/
 
 ### Env
 .env
