@@ -12,12 +12,8 @@ const key ctxKey = "correlation_id"
 
 // FromContext devolve o correlation ID do contexto, ou string vazia.
 func FromContext(ctx context.Context) string {
-	if v := ctx.Value(key); v != nil {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
+	id, _ := ctx.Value(key).(string)
+	return id
 }
 
 // NewContext devolve um contexto com o correlation ID informado.

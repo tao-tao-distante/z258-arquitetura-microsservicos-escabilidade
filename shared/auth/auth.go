@@ -130,32 +130,22 @@ func WithClaims(ctx context.Context, claims *Claims) context.Context {
 
 // FromContext devolve as claims autenticadas do contexto, ou nil.
 func FromContext(ctx context.Context) *Claims {
-	if v := ctx.Value(claimsKey); v != nil {
-		if c, ok := v.(*Claims); ok {
-			return c
-		}
-	}
-	return nil
+	claims, _ := ctx.Value(claimsKey).(*Claims)
+	return claims
 }
 
 // Middleware exige um Bearer token válido, reporta rejeições e injeta as claims no contexto.
 func Middleware(secret string, unauthorizedCallbacks ...func(*http.Request)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token, err := TokenFromHeader(r.Header.Get("Authorization"))
-			if err != nil {
-				notifyUnauthorized(r, unauthorizedCallbacks)
-				writeUnauthorized(w)
-				return
+			if token, err := TokenFromHeader(r.Header.Get("Authorization")); err == nil {
+				if claims, err := ParseAccessToken(secret, token); err == nil {
+					next.ServeHTTP(w, r.WithContext(WithClaims(r.Context(), claims)))
+					return
+				}
 			}
-			claims, err := ParseAccessToken(secret, token)
-			if err != nil {
-				notifyUnauthorized(r, unauthorizedCallbacks)
-				writeUnauthorized(w)
-				return
-			}
-			ctx := WithClaims(r.Context(), claims)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			notifyUnauthorized(r, unauthorizedCallbacks)
+			writeUnauthorized(w)
 		})
 	}
 }

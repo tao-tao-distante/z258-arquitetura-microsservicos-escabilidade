@@ -95,12 +95,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusConflict, "email already taken")
 		return
 	}
+	if errors.Is(err, domain.ErrInvalidInput) {
+		h.metrics.Inc("register", "invalid_input")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid email or password")
+		return
+	}
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidInput) {
-			h.metrics.Inc("register", "invalid_input")
-			httpx.WriteError(w, http.StatusBadRequest, "invalid email or password")
-			return
-		}
 		h.logInternal(r.Context(), err)
 		h.metrics.Inc("register", "error")
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
@@ -124,12 +124,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+	if errors.Is(err, domain.ErrInvalidInput) {
+		h.metrics.Inc("login", "invalid_input")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid email or password")
+		return
+	}
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidInput) {
-			h.metrics.Inc("login", "invalid_input")
-			httpx.WriteError(w, http.StatusBadRequest, "invalid email or password")
-			return
-		}
 		h.logInternal(r.Context(), err)
 		h.metrics.Inc("login", "error")
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")

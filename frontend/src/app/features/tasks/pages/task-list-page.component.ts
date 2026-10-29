@@ -1,8 +1,9 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { finalize } from 'rxjs';
 import { apiErrorMessage } from '../../../core/http/http-error.utils';
-import { STATUS_META, Task, TaskStatus } from '../models/task.model';
+import { STATUS_META, STATUSES, Task, TaskStatus } from '../models/task.model';
 import { TaskDataService } from '../services/task-data.service';
 import { PageHeaderComponent } from '../../../shared/components/page-header.component';
 import { TaskRowComponent } from '../components/task-row.component';
@@ -178,7 +179,7 @@ export class TaskListPageComponent implements OnInit {
   private readonly data = inject(TaskDataService);
   private readonly route = inject(ActivatedRoute);
 
-  readonly statuses: TaskStatus[] = ['todo', 'doing', 'done'];
+  readonly statuses = STATUSES;
   readonly tasks = signal<Task[]>([]);
   readonly search = signal('');
   readonly filter = signal<Filter>('all');
@@ -203,16 +204,14 @@ export class TaskListPageComponent implements OnInit {
     if (status === 'todo' || status === 'doing' || status === 'done') {
       this.filter.set(status);
     }
-    this.data.list().subscribe({
-      next: (tasks) => {
-        this.tasks.set(tasks);
-        this.loading.set(false);
-      },
-      error: (err: HttpErrorResponse) => {
-        this.loading.set(false);
-        this.error.set(apiErrorMessage(err, 'Não foi possível carregar as tarefas.'));
-      },
-    });
+    this.data
+      .list()
+      .pipe(finalize(() => this.loading.set(false)))
+      .subscribe({
+        next: (tasks) => this.tasks.set(tasks),
+        error: (err: HttpErrorResponse) =>
+          this.error.set(apiErrorMessage(err, 'Não foi possível carregar as tarefas.')),
+      });
   }
 
   onSearch(event: Event): void {

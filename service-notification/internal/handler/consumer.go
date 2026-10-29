@@ -110,17 +110,14 @@ func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 	log := logger.WithCorrelation(ctx, c.log)
 
 	var event domain.TaskCreatedEvent
+	var invalidReason any
 	if decodeErr := json.Unmarshal(delivery.Body, &event); decodeErr != nil {
-		log.ErrorContext(ctx, "invalid event", "error", decodeErr)
-		if nackErr := delivery.Nack(false, false); nackErr != nil {
-			c.metrics.Inc("nack_error")
-			return fmt.Errorf("nack delivery: %w", nackErr)
-		}
-		c.metrics.Inc("rejected")
-		return nil
+		invalidReason = decodeErr
+	} else if event.TaskID <= 0 || strings.TrimSpace(event.Title) == "" {
+		invalidReason = "task_id must be positive and title must not be empty"
 	}
-	if event.TaskID <= 0 || strings.TrimSpace(event.Title) == "" {
-		log.ErrorContext(ctx, "invalid event", "error", "task_id must be positive and title must not be empty")
+	if invalidReason != nil {
+		log.ErrorContext(ctx, "invalid event", "error", invalidReason)
 		if nackErr := delivery.Nack(false, false); nackErr != nil {
 			c.metrics.Inc("nack_error")
 			return fmt.Errorf("nack delivery: %w", nackErr)

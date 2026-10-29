@@ -170,16 +170,14 @@ func Shutdown(srv *http.Server) error {
 }
 
 func connect(ctx context.Context, dial Dialer, url string) (Conn, error) {
-	var lastErr error
 	for {
 		conn, err := dial(url)
 		if err == nil {
 			return conn, nil
 		}
-		lastErr = err
 		select {
 		case <-ctx.Done():
-			return nil, lastErr
+			return nil, err
 		case <-time.After(time.Second):
 		}
 	}

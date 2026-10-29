@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/handler"
@@ -24,13 +23,7 @@ import (
 
 // Channel abstrai o canal AMQP usado pelo serviço.
 type Channel interface {
-	ExchangeDeclare(name, kind string, durable, autoDelete, internal, noWait bool, args amqp.Table) error
-	QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp.Table) (amqp.Queue, error)
-	QueueBind(name, key, exchange string, noWait bool, args amqp.Table) error
-	PublishWithContext(ctx context.Context, exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
-	Confirm(noWait bool) error
-	NotifyPublish(confirm chan amqp.Confirmation) chan amqp.Confirmation
-	NotifyReturn(returned chan amqp.Return) chan amqp.Return
+	messaging.Channel
 	Close() error
 }
 

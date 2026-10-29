@@ -11,7 +11,6 @@ import (
 	platformlogger "github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 )
 
 // OutboxStore define as operações de outbox usadas pelo dispatcher.
@@ -72,8 +71,7 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) error {
 	event, err := d.store.ClaimOutbox(ctx)
 	if err != nil {
 		d.metrics.Inc("claim_error")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		recordSpanError(span, err)
 		return fmt.Errorf("claim event: %w", err)
 	}
 	if event == nil {

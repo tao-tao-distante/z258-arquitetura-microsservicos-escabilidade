@@ -134,16 +134,14 @@ export class TaskDetailPageComponent implements OnInit {
       this.error.set('Tarefa inválida.');
       return;
     }
-    this.data.get(id).subscribe({
-      next: (task) => {
-        this.task.set(task);
-        this.loading.set(false);
-      },
-      error: (err: HttpErrorResponse) => {
-        this.loading.set(false);
-        this.error.set(apiErrorMessage(err, 'Não foi possível carregar a tarefa.'));
-      },
-    });
+    this.data
+      .get(id)
+      .pipe(finalize(() => this.loading.set(false)))
+      .subscribe({
+        next: (task) => this.task.set(task),
+        error: (err: HttpErrorResponse) =>
+          this.error.set(apiErrorMessage(err, 'Não foi possível carregar a tarefa.')),
+      });
   }
 
   meta(status: TaskStatus) {

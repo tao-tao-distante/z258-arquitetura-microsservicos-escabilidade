@@ -79,21 +79,19 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) (r
 		serveErr <- serve(srv)
 	}()
 
+	var serveResult error
 	select {
-	case err := <-serveErr:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("serve HTTP: %w", err)
-		}
-		return nil
+	case serveResult = <-serveErr:
 	case <-ctx.Done():
 		if err := Shutdown(srv); err != nil {
 			return fmt.Errorf("shutdown HTTP server: %w", err)
 		}
-		if err := <-serveErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("serve HTTP: %w", err)
-		}
-		return nil
+		serveResult = <-serveErr
 	}
+	if serveResult != nil && !errors.Is(serveResult, http.ErrServerClosed) {
+		return fmt.Errorf("serve HTTP: %w", serveResult)
+	}
+	return nil
 }
 
 // NewServer cria o servidor HTTP com timeouts explícitos.
