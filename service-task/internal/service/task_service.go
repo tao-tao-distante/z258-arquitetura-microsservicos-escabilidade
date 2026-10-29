@@ -19,17 +19,21 @@ func New(repo repository.TaskRepository) *TaskService {
 	return &TaskService{repo: repo}
 }
 
-// Create valida o título e cria a tarefa com status todo.
-func (s *TaskService) Create(ctx context.Context, userID int64, title, description string) (*domain.Task, error) {
+// Create valida o título e o status e cria a tarefa.
+func (s *TaskService) Create(ctx context.Context, userID int64, title, description, status string) (*domain.Task, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return nil, domain.ErrInvalidInput
+	}
+	status, err := normalizeStatus(status)
+	if err != nil {
+		return nil, err
 	}
 	task, err := s.repo.Create(ctx, &domain.Task{
 		UserID:      userID,
 		Title:       title,
 		Description: description,
-		Status:      "todo",
+		Status:      status,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create task: %w", err)
@@ -61,11 +65,9 @@ func (s *TaskService) Update(ctx context.Context, id, userID int64, title, descr
 	if title == "" {
 		return nil, domain.ErrInvalidInput
 	}
-	if status == "" {
-		status = "todo"
-	}
-	if status != "todo" && status != "doing" && status != "done" {
-		return nil, domain.ErrInvalidInput
+	status, err := normalizeStatus(status)
+	if err != nil {
+		return nil, err
 	}
 	task, err := s.repo.Update(ctx, &domain.Task{
 		ID:          id,
@@ -86,4 +88,17 @@ func (s *TaskService) Delete(ctx context.Context, id, userID int64) error {
 		return fmt.Errorf("delete task: %w", err)
 	}
 	return nil
+}
+
+func normalizeStatus(status string) (string, error) {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return "todo", nil
+	}
+	switch status {
+	case "todo", "doing", "done":
+		return status, nil
+	default:
+		return "", domain.ErrInvalidInput
+	}
 }

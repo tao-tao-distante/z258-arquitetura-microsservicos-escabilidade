@@ -80,14 +80,27 @@ func (f *fakeRepo) Delete(ctx context.Context, id, userID int64) error {
 
 func TestCreateSuccess(t *testing.T) {
 	svc := New(newFakeRepo())
-	task, err := svc.Create(context.Background(), 1, "title", "desc")
+	task, err := svc.Create(context.Background(), 1, "title", "desc", "doing")
+	require.NoError(t, err)
+	require.Equal(t, "doing", task.Status)
+}
+
+func TestCreateDefaultsStatus(t *testing.T) {
+	svc := New(newFakeRepo())
+	task, err := svc.Create(context.Background(), 1, "title", "desc", "")
 	require.NoError(t, err)
 	require.Equal(t, "todo", task.Status)
 }
 
+func TestCreateRejectsInvalidStatus(t *testing.T) {
+	svc := New(newFakeRepo())
+	_, err := svc.Create(context.Background(), 1, "title", "desc", "blocked")
+	require.ErrorIs(t, err, domain.ErrInvalidInput)
+}
+
 func TestCreateValidation(t *testing.T) {
 	svc := New(newFakeRepo())
-	_, err := svc.Create(context.Background(), 1, "  ", "desc")
+	_, err := svc.Create(context.Background(), 1, "  ", "desc", "")
 	require.ErrorIs(t, err, domain.ErrInvalidInput)
 }
 
@@ -95,13 +108,13 @@ func TestCreateRepoError(t *testing.T) {
 	repo := newFakeRepo()
 	repo.err = errors.New("boom")
 	svc := New(repo)
-	_, err := svc.Create(context.Background(), 1, "title", "")
+	_, err := svc.Create(context.Background(), 1, "title", "", "")
 	require.Error(t, err)
 }
 
 func TestList(t *testing.T) {
 	svc := New(newFakeRepo())
-	_, err := svc.Create(context.Background(), 1, "a", "")
+	_, err := svc.Create(context.Background(), 1, "a", "", "")
 	require.NoError(t, err)
 	tasks, err := svc.List(context.Background(), 1, 50, 0)
 	require.NoError(t, err)
@@ -118,7 +131,7 @@ func TestListError(t *testing.T) {
 
 func TestGet(t *testing.T) {
 	svc := New(newFakeRepo())
-	created, err := svc.Create(context.Background(), 1, "a", "")
+	created, err := svc.Create(context.Background(), 1, "a", "", "")
 	require.NoError(t, err)
 	got, err := svc.Get(context.Background(), created.ID, 1)
 	require.NoError(t, err)
@@ -133,7 +146,7 @@ func TestGetNotFound(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	svc := New(newFakeRepo())
-	created, err := svc.Create(context.Background(), 1, "a", "")
+	created, err := svc.Create(context.Background(), 1, "a", "", "")
 	require.NoError(t, err)
 	updated, err := svc.Update(context.Background(), created.ID, 1, "b", "d", "done")
 	require.NoError(t, err)
@@ -156,7 +169,7 @@ func TestUpdateRejectsUnknownStatus(t *testing.T) {
 func TestUpdateAcceptsFrontendDoingStatus(t *testing.T) {
 	repo := newFakeRepo()
 	svc := New(repo)
-	created, err := svc.Create(context.Background(), 1, "title", "")
+	created, err := svc.Create(context.Background(), 1, "title", "", "")
 	require.NoError(t, err)
 	updated, err := svc.Update(context.Background(), created.ID, 1, "title", "", "doing")
 	require.NoError(t, err)
@@ -165,7 +178,7 @@ func TestUpdateAcceptsFrontendDoingStatus(t *testing.T) {
 
 func TestUpdateDefaultsStatus(t *testing.T) {
 	svc := New(newFakeRepo())
-	created, err := svc.Create(context.Background(), 1, "a", "")
+	created, err := svc.Create(context.Background(), 1, "a", "", "")
 	require.NoError(t, err)
 	updated, err := svc.Update(context.Background(), created.ID, 1, "b", "", "")
 	require.NoError(t, err)
@@ -180,7 +193,7 @@ func TestUpdateNotFound(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	svc := New(newFakeRepo())
-	created, err := svc.Create(context.Background(), 1, "a", "")
+	created, err := svc.Create(context.Background(), 1, "a", "", "")
 	require.NoError(t, err)
 	require.NoError(t, svc.Delete(context.Background(), created.ID, 1))
 }

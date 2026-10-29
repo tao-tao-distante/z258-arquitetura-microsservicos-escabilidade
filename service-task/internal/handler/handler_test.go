@@ -18,14 +18,16 @@ import (
 )
 
 type fakeService struct {
-	task   *domain.Task
-	tasks  []domain.Task
-	err    error
-	limit  int
-	offset int
+	task         *domain.Task
+	tasks        []domain.Task
+	err          error
+	limit        int
+	offset       int
+	createStatus string
 }
 
-func (f *fakeService) Create(ctx context.Context, userID int64, title, description string) (*domain.Task, error) {
+func (f *fakeService) Create(ctx context.Context, userID int64, title, description, status string) (*domain.Task, error) {
+	f.createStatus = status
 	return f.task, f.err
 }
 
@@ -119,6 +121,16 @@ func TestCreateSuccess(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.Create(rec, httptest.NewRequest(http.MethodPost, "/tasks", body).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusCreated, rec.Code)
+}
+
+func TestCreatePassesStatus(t *testing.T) {
+	svc := &fakeService{task: &domain.Task{ID: 1, Title: "x"}}
+	h := New(svc, nil)
+	body := bytes.NewBufferString(`{"title":"x","description":"d","status":"doing"}`)
+	rec := httptest.NewRecorder()
+	h.Create(rec, httptest.NewRequest(http.MethodPost, "/tasks", body).WithContext(ctxWithClaims()))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, "doing", svc.createStatus)
 }
 
 func TestCreateInvalidJSON(t *testing.T) {

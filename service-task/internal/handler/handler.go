@@ -18,7 +18,7 @@ const maxPayloadBytes = 1 << 20
 
 // TaskService define as operações de tarefas expostas pelo handler.
 type TaskService interface {
-	Create(ctx context.Context, userID int64, title, description string) (*domain.Task, error)
+	Create(ctx context.Context, userID int64, title, description, status string) (*domain.Task, error)
 	List(ctx context.Context, userID int64, limit, offset int) ([]domain.Task, error)
 	Get(ctx context.Context, id, userID int64) (*domain.Task, error)
 	Update(ctx context.Context, id, userID int64, title, description, status string) (*domain.Task, error)
@@ -113,9 +113,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		writePayloadError(w, err)
 		return
 	}
-	task, err := h.svc.Create(r.Context(), uid, p.Title, p.Description)
+	task, err := h.svc.Create(r.Context(), uid, p.Title, p.Description, p.Status)
 	if errors.Is(err, domain.ErrInvalidInput) {
-		httpx.WriteError(w, http.StatusBadRequest, "title is required")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid title or status")
 		return
 	}
 	if err != nil {
