@@ -1,17 +1,29 @@
 import { inject, Injectable } from '@angular/core';
-import { HttpClient, HttpErrorResponse, HttpResponse } from '@angular/common/http';
-import { map, Observable } from 'rxjs';
+import { HttpClient, HttpErrorResponse, HttpParams, HttpResponse } from '@angular/common/http';
+import { EMPTY, expand, map, Observable, reduce } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import { Task, TaskPayload } from '../models/task.model';
 
 @Injectable({ providedIn: 'root' })
 export class TaskDataService {
+  private static readonly pageSize = 100;
   private readonly http = inject(HttpClient);
   private readonly api = environment.taskUrl;
 
   list(): Observable<Task[]> {
+    return this.fetchPage(0).pipe(
+      expand((page, index) =>
+        page.length === TaskDataService.pageSize
+          ? this.fetchPage((index + 1) * TaskDataService.pageSize)
+          : EMPTY,
+      ),
+      reduce((tasks, page) => tasks.concat(page), [] as Task[]),
+    );
+  }
+
+  get(id: number): Observable<Task> {
     return this.http
-      .get<Task[]>(`${this.api}/tasks`, { observe: 'response' })
+      .get<Task>(`${this.api}/tasks/${id}`, { observe: 'response' })
       .pipe(map((response) => this.bodyForStatus(response, 200)));
   }
 
@@ -33,6 +45,17 @@ export class TaskDataService {
       .pipe(map((response) => {
         this.assertStatus(response, 204);
       }));
+  }
+
+  private fetchPage(offset: number): Observable<Task[]> {
+    return this.http
+      .get<Task[]>(`${this.api}/tasks`, {
+        observe: 'response',
+        params: new HttpParams()
+          .set('limit', TaskDataService.pageSize)
+          .set('offset', offset),
+      })
+      .pipe(map((response) => this.bodyForStatus(response, 200)));
   }
 
   private bodyForStatus<T>(response: HttpResponse<T>, expected: number): T {
