@@ -6,18 +6,21 @@ import { finalize } from 'rxjs';
 import { apiErrorMessage } from '../../../core/http/http-error.utils';
 import { STATUS_META, STATUSES, TaskPayload, TaskStatus } from '../models/task.model';
 import { TaskDataService } from '../services/task-data.service';
+import { FormFieldComponent } from '../../../shared/components/form-field.component';
 
 @Component({
   selector: 'app-task-form-page',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, FormFieldComponent],
   template: `
-    <section class="page">
+    <section class="page" animate.enter="page-enter">
       <a class="link-arrow back" [routerLink]="cancelLink()">
-        {{ isEdit() ? '← DETALHES' : '← TAREFAS' }}
+        <span class="desktop-back">{{ isEdit() ? '← DETALHES' : '← TAREFAS' }}</span>
+        <span class="mobile-back">← VOLTAR</span>
       </a>
 
       <header>
-        <h1 class="detail-title" [class.create]="!isEdit()">{{ heading() }}</h1>
+        <h1 class="detail-title desktop-form-heading" [class.create]="!isEdit()">{{ heading() }}</h1>
+        <h1 class="mobile-form-heading">{{ isEdit() ? 'Editar tarefa.' : 'Nova tarefa.' }}</h1>
       </header>
 
       <hr class="rule" />
@@ -27,9 +30,9 @@ import { TaskDataService } from '../services/task-data.service';
       }
 
       <form class="form" #form="ngForm" (ngSubmit)="submit(form)" novalidate>
-        <label class="field">
-          <span class="field-label">{{ isEdit() ? 'TÍTULO' : '01 / TÍTULO *' }}</span>
+        <app-form-field [label]="isEdit() ? 'TÍTULO' : '01 / TÍTULO *'" mobileLabel="TÍTULO *" inputId="task-title">
           <input
+            id="task-title"
             class="input"
             name="title"
             [(ngModel)]="title"
@@ -37,26 +40,26 @@ import { TaskDataService } from '../services/task-data.service';
             #titleModel="ngModel"
             required
             maxlength="160"
-            placeholder="Ex.: Revisar contratos da API"
+            placeholder="O que precisa ser feito?"
             aria-describedby="task-title-error"
           />
           @if ((titleModel.touched || submitted()) && titleModel.invalid) {
-            <span id="task-title-error" class="error">Informe o título da tarefa.</span>
+            <span fieldError id="task-title-error" class="error">Informe o título da tarefa.</span>
           }
-        </label>
+        </app-form-field>
 
-        <label class="field">
-          <span class="field-label">{{ isEdit() ? 'DESCRIÇÃO' : '02 / DESCRIÇÃO' }}</span>
+        <app-form-field [label]="isEdit() ? 'DESCRIÇÃO' : '02 / DESCRIÇÃO'" mobileLabel="DESCRIÇÃO" inputId="task-description">
           <textarea
+            id="task-description"
             class="input"
             name="description"
             [(ngModel)]="description"
             (ngModelChange)="clearError()"
             maxlength="500"
             rows="4"
-            placeholder="Descreva os detalhes da tarefa..."
+            placeholder="Adicione os detalhes..."
           ></textarea>
-        </label>
+        </app-form-field>
 
         <div class="field">
           <label class="field-label" for="task-status">{{ isEdit() ? 'STATUS' : '03 / STATUS' }}</label>
@@ -75,7 +78,7 @@ import { TaskDataService } from '../services/task-data.service';
         </div>
 
         <div class="actions">
-          <a class="btn btn-outline" [routerLink]="cancelLink()">
+          <a class="btn btn-outline desktop-cancel" [routerLink]="cancelLink()">
             Cancelar <span class="arrow" aria-hidden="true">↗</span>
           </a>
           <button class="btn btn-primary" type="submit" [disabled]="loading()">
@@ -93,8 +96,9 @@ import { TaskDataService } from '../services/task-data.service';
   styles: [
     `
       .page { display: grid; gap: 0; }
-      .back { margin-bottom: 44px; font-size: 11px; letter-spacing: 0.05em; }
-      header { margin-bottom: 64px; }
+      .mobile-form-heading, .mobile-back { display: none; }
+      .back { margin-bottom: 55px; font-size: 12px; letter-spacing: 0.02em; }
+      header { margin-bottom: 52px; }
       .detail-title {
         font-size: clamp(2.4rem, 4vw, 50px);
         line-height: 1.02;
@@ -102,9 +106,10 @@ import { TaskDataService } from '../services/task-data.service';
       }
       .detail-title.create { max-width: 13ch; }
       .rule { margin-bottom: 28px; }
-      .form { display: grid; gap: 0; max-width: 920px; }
-      .field { gap: 12px; }
-      .field + .field { margin-top: 38px; }
+      .form { display: grid; gap: 0; max-width: 950px; }
+      app-form-field { --field-gap: 14px; }
+      app-form-field + app-form-field { margin-top: 38px; }
+      .form > .field { margin-top: 38px; }
       .field-label { font-size: 11px; letter-spacing: 0.07em; }
       .actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
       .actions .btn { min-width: 155px; }
@@ -128,9 +133,21 @@ import { TaskDataService } from '../services/task-data.service';
       .status-select.done { background: var(--band-done); color: var(--text-done); }
       .note { margin-top: 38px; font-size: 11px; color: var(--muted); }
       .note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      input.input { min-height: 66px; }
       @media (max-width: 900px) {
-        .actions { flex-direction: column-reverse; }
-        .actions .btn { width: 100%; }
+        .desktop-back, .desktop-form-heading, .desktop-cancel, .note, .page > .rule { display: none; }
+        .mobile-back, .mobile-form-heading { display: initial; }
+        .back { margin-bottom: 27px; font-size: 12px; }
+        header { margin-bottom: 43px; }
+        .mobile-form-heading { font-size: 36px; line-height: 1.05; }
+        .form { max-width: none; }
+        .input, input.input { min-height: 53px; padding: 0 14px; font-size: 14px; }
+        textarea.input { min-height: 126px; padding: 16px 14px; }
+        app-form-field + app-form-field { margin-top: 36px; }
+        .field + .field { margin-top: 36px; }
+        .status-select { width: 129px; }
+        .actions { display: block; margin-top: 91px; }
+        .actions .btn-primary { width: 100%; }
       }
     `,
   ],

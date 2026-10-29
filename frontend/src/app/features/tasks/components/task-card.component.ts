@@ -20,15 +20,16 @@ import { Task } from '../models/task.model';
       .task {
         display: grid;
         gap: 10px;
-        padding: 16px 18px 14px;
-        background: #f8f6ef;
+        min-height: 138px;
+        padding: 16px 14px 13px;
+        background: var(--paper);
         border: 1px solid var(--line);
         border-radius: 3px;
         transition: border-color 0.15s ease;
       }
       .task:hover { border-color: var(--pine); }
       h3 { font-size: 17px; line-height: 1.25; }
-      .meta { font-size: 11.5px; color: var(--muted); }
+      .meta { font-size: 12px; color: var(--muted); }
       hr { border: 0; height: 1px; background: var(--line); margin: 2px 0; }
       .link-arrow { font-size: 10px; letter-spacing: 0.06em; }
     `,

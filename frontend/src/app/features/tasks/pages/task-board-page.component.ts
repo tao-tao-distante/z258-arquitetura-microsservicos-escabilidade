@@ -5,21 +5,24 @@ import { apiErrorMessage } from '../../../core/http/http-error.utils';
 import { TaskCardComponent } from '../components/task-card.component';
 import { STATUS_META, STATUSES, Task, TaskStatus } from '../models/task.model';
 import { TaskDataService } from '../services/task-data.service';
+import { PageHeaderComponent } from '../../../shared/components/page-header.component';
 
 @Component({
   selector: 'app-task-board-page',
-  imports: [RouterLink, TaskCardComponent],
+  imports: [RouterLink, TaskCardComponent, PageHeaderComponent],
   template: `
-    <section class="page">
-      <header class="head">
-        <div>
-          <h1 class="page-title">Do plano à entrega.</h1>
-          <p class="page-subtitle">Arraste mentalmente o trabalho de uma etapa para outra.</p>
-        </div>
+    <section class="page" animate.enter="page-enter">
+      <app-page-header
+        title="Do plano à entrega."
+        subtitle="Arraste mentalmente o trabalho de uma etapa para outra."
+        mobileEyebrow="QUADRO"
+        mobileTitle="Do plano à entrega."
+        [showMobileAction]="true"
+      >
         <a class="btn btn-lime" routerLink="/tasks/new">
           Nova tarefa <span class="arrow" aria-hidden="true">↗</span>
         </a>
-      </header>
+      </app-page-header>
 
       @if (error()) {
         <p class="error" role="alert" aria-live="assertive">{{ error() }}</p>
@@ -51,16 +54,17 @@ import { TaskDataService } from '../services/task-data.service';
   `,
   styles: [
     `
-      .page { display: grid; gap: 26px; }
-      .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-      .board { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 32px; align-items: stretch; }
+      .page { display: grid; gap: 0; }
+      app-page-header { margin-bottom: 57px; }
+      .board { display: grid; grid-template-columns: repeat(3, minmax(0, 336px)); gap: 24px; align-items: stretch; }
       .column { display: grid; grid-template-rows: auto 1fr; }
       .column-head {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 12px 16px;
+        min-height: 58px;
+        padding: 12px 17px;
         border-radius: 3px 3px 0 0;
       }
       .column-head.todo { background: var(--band-todo); }
@@ -76,14 +80,14 @@ import { TaskDataService } from '../services/task-data.service';
         border: 1px solid var(--line);
         border-top: 0;
         border-radius: 0 0 3px 3px;
-        min-height: 380px;
+        min-height: 515px;
         align-content: start;
       }
       .empty { padding: 16px 4px; font-size: 12px; color: var(--muted); }
       .note { font-size: 11.5px; color: var(--muted); }
       .note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
       @media (max-width: 900px) {
-        .head { flex-direction: column; }
+        app-page-header { margin-bottom: 24px; }
         .board {
           display: flex;
           overflow-x: auto;

@@ -152,10 +152,11 @@ button {
   font-weight: 500;
   color: var(--pine);
   background: var(--paper-raised);
-  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease,
+    opacity 0.18s ease, transform 0.18s ease;
 }
 
-.btn:hover { border-color: var(--pine); }
+.btn:hover { border-color: var(--pine); transform: translateY(-1px); }
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
@@ -223,6 +224,14 @@ textarea.input {
 .input::placeholder { color: var(--muted); }
 .input:focus { outline: none; border-color: var(--pine); box-shadow: 0 0 0 1px var(--pine); }
 
+.input { transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease; }
+
+.page-enter { animation: page-in 260ms ease-out; }
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
 .status-band {
   display: inline-flex;
   align-items: center;
@@ -264,4 +273,13 @@ textarea.input {
 
 @media (max-width: 900px) {
   .page-title { font-size: clamp(1.9rem, 7vw, 37px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

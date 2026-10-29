@@ -6,12 +6,13 @@ import { apiErrorMessage } from '../../../core/http/http-error.utils';
 import { StatusBadgeComponent } from '../components/status-badge.component';
 import { STATUS_META, Task, TaskStatus } from '../models/task.model';
 import { TaskDataService } from '../services/task-data.service';
+import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog.component';
 
 @Component({
   selector: 'app-task-detail-page',
-  imports: [RouterLink, StatusBadgeComponent],
+  imports: [RouterLink, StatusBadgeComponent, ConfirmDialogComponent],
   template: `
-    <section class="page">
+    <section class="page" animate.enter="page-enter">
       <a class="link-arrow back" routerLink="/tasks">← VOLTAR ÀS TAREFAS</a>
 
       @if (loading()) {
@@ -60,30 +61,14 @@ import { TaskDataService } from '../services/task-data.service';
         </div>
 
         @if (confirmOpen()) {
-          <div class="overlay" (click)="closeConfirm($event)">
-            <div
-              class="dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="delete-title"
-              aria-describedby="delete-desc"
-            >
-              <span class="dialog-icon" aria-hidden="true">!</span>
-              <h2 id="delete-title">Excluir esta tarefa?</h2>
-              <p id="delete-desc" class="muted">
-                Essa ação não pode ser desfeita. A tarefa será removida permanentemente do workspace.
-              </p>
-              <hr class="rule" />
-              <div class="dialog-actions">
-                <button class="btn btn-outline" type="button" (click)="confirmOpen.set(false)" [disabled]="pending()">
-                  Cancelar <span class="arrow" aria-hidden="true">↗</span>
-                </button>
-                <button class="btn btn-danger" type="button" (click)="remove()" [disabled]="pending()">
-                  {{ pending() ? 'Excluindo...' : 'Sim, excluir' }} <span class="arrow" aria-hidden="true">↗</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          <app-confirm-dialog
+            title="Excluir esta tarefa?"
+            description="Essa ação não pode ser desfeita. A tarefa será removida permanentemente do workspace."
+            confirmLabel="Sim, excluir"
+            [pending]="pending()"
+            (cancel)="confirmOpen.set(false)"
+            (confirm)="remove()"
+          />
         }
       } @else {
         <div class="empty-state">
@@ -97,13 +82,13 @@ import { TaskDataService } from '../services/task-data.service';
   styles: [
     `
       .page { display: grid; gap: 0; }
-      .back { margin-bottom: 48px; font-size: 11px; letter-spacing: 0.05em; }
+      .back { margin-bottom: 57px; font-size: 12px; letter-spacing: 0.02em; }
       .head {
         display: grid;
         grid-template-columns: 1fr auto;
         align-items: start;
         gap: 32px;
-        margin-bottom: 64px;
+        margin-bottom: 52px;
       }
       .detail-title {
         font-size: clamp(2.6rem, 4.4vw, 54px);
@@ -113,56 +98,20 @@ import { TaskDataService } from '../services/task-data.service';
       }
       .head app-status-badge { margin-top: 10px; }
       .head + .rule { margin-bottom: 46px; }
-      .description { display: grid; gap: 18px; margin-bottom: 40px; }
-      .description p { font-size: 16px; line-height: 1.75; max-width: 62ch; white-space: pre-wrap; }
-      .description + .rule { margin-bottom: 42px; }
+      .description { display: grid; gap: 18px; margin-bottom: 63px; }
+      .description p { font-size: 19px; line-height: 1.32; max-width: 62ch; white-space: pre-wrap; }
+      .description + .rule { margin-bottom: 31px; }
       .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin: 0; }
       dt { font-size: 10px; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 10px; }
       dd { margin: 0; font-size: 16px; color: var(--ink); }
-      .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 84px; }
+      .actions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 92px; }
       .actions .btn-primary { min-width: 194px; }
-      .overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 50;
-        display: grid;
-        place-items: center;
-        padding: 22px 22px 22px 262px;
-        background: rgba(24, 61, 53, 0.15);
-      }
-      .dialog {
-        width: min(512px, 100%);
-        display: grid;
-        gap: 16px;
-        padding: 28px;
-        background: var(--paper-raised);
-        border: 1px solid var(--line);
-        border-radius: 3px;
-      }
-      .dialog-icon {
-        display: grid;
-        place-items: center;
-        width: 40px;
-        height: 40px;
-        background: var(--danger-soft);
-        color: var(--danger);
-        font-family: var(--font-display);
-        font-weight: 700;
-        font-size: 22px;
-      }
-      .dialog h2 { font-size: 26px; }
-      .dialog .muted { font-size: 14px; line-height: 1.55; }
-      .dialog .rule { margin: 8px 0; }
-      .dialog-actions { display: grid; grid-template-columns: 194px 1fr; gap: 19px; }
-      .dialog-actions .btn { width: 100%; }
       @media (max-width: 900px) {
         .head { grid-template-columns: 1fr; gap: 14px; }
         .head app-status-badge { margin-top: 0; justify-self: start; }
         .meta { grid-template-columns: 1fr; gap: 18px; }
         .actions { margin-top: 36px; }
         .actions .btn { flex: 1; min-width: 0; }
-        .overlay { padding: 22px; }
-        .dialog-actions { grid-template-columns: 1fr 1fr; gap: 10px; }
       }
     `,
   ],
@@ -220,9 +169,4 @@ export class TaskDetailPageComponent implements OnInit {
       });
   }
 
-  closeConfirm(event: MouseEvent): void {
-    if (event.target === event.currentTarget) {
-      this.confirmOpen.set(false);
-    }
-  }
 }

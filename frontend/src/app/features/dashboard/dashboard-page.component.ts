@@ -2,29 +2,32 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { apiErrorMessage } from '../../core/http/http-error.utils';
-import { StatusBadgeComponent } from '../tasks/components/status-badge.component';
 import { Task, TaskStatus } from '../tasks/models/task.model';
 import { TaskDataService } from '../tasks/services/task-data.service';
+import { PageHeaderComponent } from '../../shared/components/page-header.component';
+import { TaskRowComponent } from '../tasks/components/task-row.component';
 
 @Component({
   selector: 'app-dashboard-page',
-  imports: [RouterLink, StatusBadgeComponent],
+  imports: [RouterLink, PageHeaderComponent, TaskRowComponent],
   template: `
-    <section class="page">
-      <header class="head">
-        <div>
-          <h1 class="page-title">Menos ruído. Mais feito.</h1>
-          <p class="page-subtitle">Sua semana em perspectiva. Pequenos avanços, todos os dias.</p>
-        </div>
+    <section class="page" animate.enter="page-enter">
+      <app-page-header
+        title="Menos ruído. Mais feito."
+        subtitle="Sua semana em perspectiva. Pequenos avanços, todos os dias."
+        mobileEyebrow="MEU WORKSPACE"
+        mobileTitle="Hoje, com foco."
+      >
         <a class="btn btn-lime" routerLink="/tasks/new">
           Nova tarefa <span class="arrow" aria-hidden="true">↗</span>
         </a>
-      </header>
+      </app-page-header>
 
       @if (error()) {
         <p class="error" role="alert" aria-live="assertive">{{ error() }}</p>
       }
 
+      <div class="desktop-dashboard">
       <section class="hero">
         <div class="hero-copy">
           <span class="eyebrow">O QUE IMPORTA AGORA</span>
@@ -82,34 +85,43 @@ import { TaskDataService } from '../tasks/services/task-data.service';
           <ul class="list">
             @for (task of ongoing(); track task.id; let index = $index) {
               <li>
-                <a [routerLink]="['/tasks', task.id]">
-                  <span class="index">{{ (index + 1).toString().padStart(2, '0') }}</span>
-                  <span class="copy">
-                    <span class="title">{{ task.title }}</span>
-                    @if (task.description) {
-                      <span class="desc">{{ task.description }}</span>
-                    }
-                  </span>
-                  <app-status-badge [status]="task.status" [withIndex]="true" />
-                  <span class="arrow" aria-hidden="true">↗</span>
-                </a>
+                <app-task-row [task]="task" [index]="index + 1" />
               </li>
             }
           </ul>
         }
+      </section>
+      </div>
+
+      <section class="mobile-dashboard">
+        <div class="mobile-hero">
+          <strong>{{ progress() }}%</strong>
+          <span>DO TRABALHO CONCLUÍDO</span>
+          <p class="mobile-progress">{{ count('done') }} concluídas de {{ tasks().length }} tarefas</p>
+        </div>
+        <span class="mobile-section-label">EM ANDAMENTO</span>
+        <div class="mobile-tasks">
+          @for (task of ongoing(); track task.id) {
+            <a class="mobile-task" [routerLink]="['/tasks', task.id]">
+              <strong>{{ task.title }}</strong>
+              <span>{{ task.status === 'doing' ? 'EM CURSO' : 'A FAZER' }}</span>
+            </a>
+          }
+        </div>
       </section>
     </section>
   `,
   styles: [
     `
       .page { display: grid; gap: 0; }
-      .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 56px; }
+      app-page-header { margin-bottom: 56px; }
+      .mobile-dashboard { display: none; }
       .hero {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
         gap: 40px;
-        min-height: 232px;
+        min-height: 218px;
         padding: 26px 30px 32px;
         background: var(--pine);
         color: var(--paper-raised);
@@ -133,7 +145,7 @@ import { TaskDataService } from '../tasks/services/task-data.service';
         color: var(--lime);
       }
       .hero-label { font-size: 10px; letter-spacing: 0.1em; color: var(--rail-text); }
-      .stats { margin-top: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+      .stats { margin-top: 23px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
       .stat {
         display: grid;
         gap: 14px;
@@ -155,35 +167,19 @@ import { TaskDataService } from '../tasks/services/task-data.service';
       .section-head h2 { font-size: 24px; }
       .list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
       .list li { border-bottom: 1px solid var(--line); }
-      .list a {
-        display: grid;
-        grid-template-columns: 44px 1fr 280px 24px;
-        align-items: center;
-        gap: 16px;
-        padding: 24px 4px;
-      }
-      .list a:hover .title { text-decoration: underline; text-underline-offset: 3px; }
-      .index { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-      .copy { display: grid; gap: 3px; min-width: 0; }
-      .title { font-family: var(--font-display); font-weight: 600; font-size: 16px; color: var(--pine); }
-      .desc {
-        font-size: 12px;
-        color: var(--muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .list .arrow { font-size: 16px; color: var(--pine); justify-self: end; }
       @media (max-width: 900px) {
-        .head { flex-direction: column; margin-bottom: 28px; }
-        .hero { min-height: 0; flex-direction: column; align-items: flex-start; gap: 24px; padding: 24px 22px; }
-        .ongoing { margin-top: 32px; }
-        .hero-progress { width: 100%; justify-items: start; min-width: 0; }
-        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-        .stat { min-height: 96px; padding: 18px; }
-        .stat strong { font-size: 36px; }
-        .list a { grid-template-columns: 30px 1fr 20px; }
-        .list app-status-badge { display: none; }
+        app-page-header { margin-bottom: 38px; }
+        .desktop-dashboard { display: none; }
+        .mobile-dashboard { display: grid; }
+        .mobile-hero { display: grid; min-height: 182px; padding: 23px 20px 20px; border-radius: 3px; background: var(--pine); color: var(--paper-raised); }
+        .mobile-hero strong { font-family: var(--font-display); font-size: 58px; line-height: 1.1; color: var(--lime); }
+        .mobile-hero > span { margin-top: 5px; font-size: 12px; }
+        .mobile-progress { align-self: end; font-size: 12px; color: var(--rail-text); }
+        .mobile-section-label { margin-top: 36px; font-size: 12px; color: var(--muted); }
+        .mobile-tasks { display: grid; gap: 13px; margin-top: 29px; }
+        .mobile-task { display: grid; gap: 9px; min-height: 78px; padding: 14px; border: 1px solid var(--line); border-radius: 3px; background: var(--paper-raised); }
+        .mobile-task strong { font-family: var(--font-display); font-size: 16px; color: var(--pine); }
+        .mobile-task span { font-size: 11px; color: var(--muted); }
       }
     `,
   ],

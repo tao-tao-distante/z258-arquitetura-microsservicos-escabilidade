@@ -2,29 +2,33 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { apiErrorMessage } from '../../../core/http/http-error.utils';
-import { StatusBadgeComponent } from '../components/status-badge.component';
 import { STATUS_META, Task, TaskStatus } from '../models/task.model';
 import { TaskDataService } from '../services/task-data.service';
+import { PageHeaderComponent } from '../../../shared/components/page-header.component';
+import { TaskRowComponent } from '../components/task-row.component';
 
 type Filter = 'all' | TaskStatus;
 
 @Component({
   selector: 'app-task-list-page',
-  imports: [RouterLink, StatusBadgeComponent],
+  imports: [RouterLink, PageHeaderComponent, TaskRowComponent],
   template: `
-    <section class="page">
-      <header class="head">
-        <div>
-          <h1 class="page-title">Tudo o que está em movimento.</h1>
-          <p class="page-subtitle">Uma lista clara do que precisa de atenção.</p>
-        </div>
+    <section class="page" animate.enter="page-enter">
+      <app-page-header
+        title="Tudo o que está em movimento."
+        subtitle="Uma lista clara do que precisa de atenção."
+        [mobileEyebrow]="'TAREFAS / ' + tasks().length"
+        mobileTitle="Sua lista."
+        [showMobileAction]="true"
+      >
         <a class="btn btn-lime" routerLink="/tasks/new">
-          Nova tarefa <span class="arrow" aria-hidden="true">↗</span>
+          <span class="desktop-label">Nova tarefa</span><span class="mobile-label">+ Nova tarefa</span>
+          <span class="arrow" aria-hidden="true">↗</span>
         </a>
-      </header>
+      </app-page-header>
 
       <div class="toolbar">
-        <label class="search">
+        <label class="search desktop-search">
           <span aria-hidden="true">⌕</span>
           <span class="sr-only">Buscar tarefa</span>
           <input
@@ -34,6 +38,11 @@ type Filter = 'all' | TaskStatus;
             [value]="search()"
             (input)="onSearch($event)"
           />
+        </label>
+        <label class="search mobile-search">
+          <span aria-hidden="true">⌕</span>
+          <span class="sr-only">Buscar tarefa</span>
+          <input class="input" type="search" placeholder="Buscar tarefas" [value]="search()" (input)="onSearch($event)" />
         </label>
 
         <div class="filters" role="group" aria-label="Filtrar por status">
@@ -67,7 +76,7 @@ type Filter = 'all' | TaskStatus;
           <a class="link-arrow" routerLink="/tasks/new">CRIAR PRIMEIRA TAREFA ↗</a>
         </div>
       } @else {
-        <div class="table">
+        <div class="table desktop-table">
           <div class="table-head">
             <span>TAREFA</span>
             <span>ETAPA</span>
@@ -75,17 +84,7 @@ type Filter = 'all' | TaskStatus;
           <ul>
             @for (task of filtered(); track task.id; let index = $index) {
               <li>
-                <a [routerLink]="['/tasks', task.id]">
-                  <span class="index">{{ (index + 1).toString().padStart(2, '0') }}</span>
-                  <span class="copy">
-                    <span class="title">{{ task.title }}</span>
-                    @if (task.description) {
-                      <span class="desc">{{ task.description }}</span>
-                    }
-                  </span>
-                  <app-status-badge [status]="task.status" [withIndex]="true" />
-                  <span class="arrow" aria-hidden="true">↗</span>
-                </a>
+                <app-task-row [task]="task" [index]="index + 1" />
               </li>
             }
           </ul>
@@ -93,13 +92,24 @@ type Filter = 'all' | TaskStatus;
             <span>01 — {{ filtered().length.toString().padStart(2, '0') }} / {{ filtered().length }} TAREFAS</span>
           </div>
         </div>
+        <ul class="mobile-task-list">
+          @for (task of filtered(); track task.id) {
+            <li>
+              <a [routerLink]="['/tasks', task.id]">
+                <strong>{{ task.title }}</strong>
+                <span class="mobile-status">{{ task.status === 'doing' ? 'EM CURSO' : task.status === 'done' ? 'FEITO' : 'A FAZER' }}</span>
+              </a>
+            </li>
+          }
+        </ul>
       }
     </section>
   `,
   styles: [
     `
-      .page { display: grid; gap: 26px; }
-      .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+      .page { display: grid; gap: 0; }
+      app-page-header { margin-bottom: 49px; }
+      .mobile-label, .mobile-search, .mobile-task-list { display: none; }
       .toolbar {
         display: flex;
         align-items: center;
@@ -145,34 +155,21 @@ type Filter = 'all' | TaskStatus;
       .table-head span:last-child { grid-column: 3; }
       ul { list-style: none; margin: 0; padding: 0; }
       li { border-bottom: 1px solid var(--line); }
-      li a {
-        display: grid;
-        grid-template-columns: 44px 1fr 280px 24px;
-        align-items: center;
-        gap: 16px;
-        padding: 24px 4px;
-      }
-      li a:hover .title { text-decoration: underline; text-underline-offset: 3px; }
-      .index { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-      .copy { display: grid; gap: 3px; min-width: 0; }
-      .title { font-family: var(--font-display); font-weight: 600; font-size: 16px; color: var(--pine); }
-      .desc {
-        font-size: 12px;
-        color: var(--muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .arrow { font-size: 16px; color: var(--pine); justify-self: end; }
+      .desktop-table { margin-top: 40px; }
       .table-foot { padding: 18px 4px; font-size: 11px; letter-spacing: 0.05em; color: var(--muted); }
       @media (max-width: 900px) {
-        .head { flex-direction: column; }
-        .toolbar { flex-direction: column; align-items: stretch; gap: 16px; }
+        app-page-header { margin-bottom: 21px; }
+        .desktop-label, .desktop-search, .filters, .desktop-table { display: none; }
+        .mobile-label, .mobile-search { display: initial; }
+        .header-action .btn, app-page-header .btn { width: 100%; background: var(--pine); color: var(--paper-raised); border-color: var(--pine); }
+        .toolbar { display: block; }
         .search { flex-basis: auto; }
-        .filters { justify-content: space-between; gap: 10px; }
-        .table-head { display: none; }
-        li a { grid-template-columns: 30px 1fr 20px; gap: 12px; }
-        app-status-badge { display: none; }
+        .search .input { min-height: 48px; padding-left: 42px; font-size: 13px; }
+        .mobile-task-list { display: block; list-style: none; margin: 33px 0 0; padding: 0; border-top: 1px solid var(--line); }
+        .mobile-task-list li { border-bottom: 1px solid var(--line); }
+        .mobile-task-list a { display: grid; gap: 8px; min-height: 82px; padding: 14px 3px; }
+        .mobile-task-list strong { font-family: var(--font-display); font-size: 16px; color: var(--pine); }
+        .mobile-status { font-size: 10px; color: var(--muted); }
       }
     `,
   ],

@@ -83,7 +83,7 @@ const NAV_ITEMS: NavItem[] = [
             <span class="crumb">{{ crumb() }}</span>
             <span class="today">{{ today }}</span>
           </div>
-          <hr class="rule" />
+          <hr class="rule shell-rule" />
           <main class="page-content">
             <router-outlet />
           </main>
@@ -255,9 +255,11 @@ const NAV_ITEMS: NavItem[] = [
 
       .page-content {
         padding: 30px 42px 56px;
-        max-width: 1110px;
+        max-width: 1148px;
         width: 100%;
       }
+
+      .shell-rule { margin: 0 49px 0 41px; }
 
       .mobile-topbar,
       .mobile-nav,
@@ -319,16 +321,11 @@ const NAV_ITEMS: NavItem[] = [
           min-height: 44px;
         }
 
-        .page-top {
-          min-height: 0;
-          padding: 34px 22px 14px;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 6px;
-        }
+        .page-top, .shell-rule { display: none; }
 
         .page-content {
-          padding: 22px 22px 96px;
+          padding: 35px 22px 96px;
+          max-width: none;
         }
 
         .mobile-nav {
@@ -341,7 +338,6 @@ const NAV_ITEMS: NavItem[] = [
           gap: 1rem;
           padding: 0 22px;
           background: var(--paper-raised);
-          border-top: 1px solid var(--line);
           z-index: 20;
         }
 
