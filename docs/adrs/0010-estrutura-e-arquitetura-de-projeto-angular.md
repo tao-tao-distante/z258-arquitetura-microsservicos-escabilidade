@@ -8,6 +8,8 @@ Aceito.
 
 2026-10-28
 
+Atualizado em: 2026-10-29
+
 ## Contexto e Problema
 
 Para a interface SPA da aplicação Task Manager, é necessário estabelecer uma estrutura de arquivos e diretórios que
@@ -50,31 +52,37 @@ frontend/
 │   ├── app/
 │   │   ├── core/                       # Lógicas singleton globais da aplicação
 │   │   │   ├── guards/                 # Guards de navegação (auth.guard.ts)
-│   │   │   ├── interceptors/          # Interceptores HTTP (correlation-id.interceptor.ts, jwt.interceptor.ts)
-│   │   │   ├── services/               # Serviços globais (auth.service.ts)
-│   │   │   └── models/                 # Interfaces/Types do ecossistema global
+│   │   │   ├── http/                   # Utilitários HTTP (http-error.utils.ts)
+│   │   │   ├── interceptors/           # Interceptores HTTP (correlation-id.interceptor.ts, jwt.interceptor.ts)
+│   │   │   ├── models/                 # Interfaces/Types do ecossistema global
+│   │   │   └── services/               # Serviços globais (auth.service.ts)
 │   │   │
-│   │   ├── shared/                     # Componentes visuais utilitários e reutilizáveis
-│   │   │   ├── components/             # UI genérica (button, modal, navbar, loading-spinner)
+│   │   ├── shared/                     # UI genérica sem regra de negócio
+│   │   │   ├── components/             # button, modal, navbar, loading-spinner
 │   │   │   ├── directives/             # Diretivas genéricas de DOM
 │   │   │   └── pipes/                  # Pipes customizados (format-date.pipe.ts)
 │   │   │
 │   │   ├── features/                   # Módulos de domínio de negócio (Feature-First)
-│   │   │   ├── auth/                   # Módulo de Autenticação
+│   │   │   ├── auth/                   # Autenticação
+│   │   │   │   ├── auth-form.utils.ts  # Validações compartilhadas pelos formulários
 │   │   │   │   ├── login/              # Tela de Login (Standalone Component)
 │   │   │   │   └── register/           # Tela de Cadastro
 │   │   │   │
-│   │   │   ├── tasks/                  # Módulo de Gestão de Tarefas
-│   │   │   │   ├── components/         # Dumb components (task-card, task-filter)
-│   │   │   │   ├── pages/              # Smart components (task-board-page, task-list-page)
-│   │   │   │   ├── services/           # TaskDataService (comunicação REST com service-task)
-│   │   │   │   ├── models/             # Task, Project, Status interfaces
-│   │   │   │   └── tasks.routes.ts     # Tabela de rotas com Lazy Loading
+│   │   │   ├── dashboard/              # Painel com indicadores das tarefas
+│   │   │   │   └── dashboard-page.component.ts
 │   │   │   │
-│   │   │   └── notifications/          # Módulo de Notificações/Central de Avisos
+│   │   │   ├── tasks/                  # Gestão de Tarefas
+│   │   │   │   ├── components/         # Dumb components (task-card, status-badge)
+│   │   │   │   ├── pages/              # Smart components (task-board-page, task-list-page, task-detail-page, task-form-page)
+│   │   │   │   ├── services/           # TaskDataService (comunicação REST com service-task)
+│   │   │   │   ├── models/             # Task, TaskStatus, TaskPayload
+│   │   │   │   └── tasks.routes.ts     # Tabela de rotas lazy-loaded da feature
+│   │   │   │
+│   │   │   └── notifications/          # Tela de Atividades (eventos e saúde do consumidor)
+│   │   │       └── notifications.component.ts
 │   │   │
 │   │   ├── app.config.ts               # Provedores globais, rotas e interceptores da aplicação
-│   │   ├── app.routes.ts               # Tabela principal de rotas (Lazy-loaded features)
+│   │   ├── app.routes.ts               # Tabela principal de rotas (lazy-loaded features)
 │   │   └── app.component.ts            # Componente shell/raiz da aplicação
 │   │
 │   ├── assets/                         # Imagens, ícones estáticos e fontes
@@ -89,6 +97,8 @@ frontend/
 ### Consequências
 
 * Features isoladas por domínio, com `core/` e `shared/` livres de regra de negócio.
+* `shared/` não importa tipos ou serviços de `features/`; componentes específicos de tarefas, como `StatusBadgeComponent`,
+  permanecem em `features/tasks/components/`.
 * Standalone Components e Signals dispensam `NgModules`, reduzindo boilerplate.
 * Lazy loading por feature limita o bundle inicial.
 * Componentes dumb permanecem reutilizáveis; páginas smart concentram estado e chamadas HTTP.
@@ -98,3 +108,5 @@ frontend/
 * `npm run build` passa com `strict` e `strictTemplates`.
 * `grep -R NgModule src` não encontra módulos.
 * A estrutura de pastas e os interceptores conferem com a árvore acima.
+* Rotas lazy-loaded: `/login`, `/register`, `/dashboard`, `/tasks`, `/tasks/board`, `/tasks/new`, `/tasks/:id`,
+  `/tasks/:id/edit` e `/activities` (alias `/notifications`).

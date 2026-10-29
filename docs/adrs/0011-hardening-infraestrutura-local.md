@@ -22,6 +22,8 @@ dados não persistentes para mensageria/observabilidade. Grafana também exigia 
 - Não publicar bancos, AMQP ou endpoints de telemetria.
 - Separar redes `edge`, `identity-data`, `task-data`, `messaging` e `telemetry`; marcar redes de dependências como
   internas.
+- Ligar o Grafana também à rede bridge `admin`, pois Docker não publica portas de containers conectados apenas a redes
+  `internal`; a porta `3000` continua restrita a `127.0.0.1`.
 - Persistir dados de PostgreSQL, RabbitMQ, Tempo, Prometheus e Grafana em volumes nomeados.
 - Aplicar `restart: unless-stopped`, healthchecks e dependência por saúde.
 - Provisionar Prometheus e Tempo como datasources Grafana.

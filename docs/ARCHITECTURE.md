@@ -62,7 +62,8 @@ internas do Collector, não métricas de negócio ou de runtime dos serviços.
 - Variáveis obrigatórias em `.env` fornecem senhas dos bancos, RabbitMQ, JWT e Grafana; o Compose rejeita ausência.
 - RabbitMQ usa usuário próprio, não `guest`.
 - `identity-data`, `task-data`, `messaging` e `telemetry` são redes internas separadas; cada serviço entra apenas nas
-  redes de que precisa, e todos entram em `telemetry` para exportar OTLP.
+  redes de que precisa, e todos entram em `telemetry` para exportar OTLP. Como redes `internal` não publicam portas,
+  o Grafana também entra na rede bridge `admin`, usada apenas para expor `127.0.0.1:3000`.
 - Somente o frontend publica porta em todas as interfaces. APIs e consoles administrativos usam loopback.
 - Bancos e serviços de telemetria não publicam portas no host.
 - Contexts Docker excluem segredos e artefatos locais.

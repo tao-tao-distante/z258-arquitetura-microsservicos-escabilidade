@@ -80,14 +80,32 @@ Rotas de tarefas exigem `Authorization: Bearer <jwt>`.
 
 | Método | Rota | Descrição | Sucesso |
 |---|---|---|---|
-| GET | `/tasks` | Lista tarefas do usuário | `200` |
+| GET | `/tasks?limit=50&offset=0` | Lista tarefas do usuário com paginação (`limit` 1..100, padrão 50) | `200` |
 | POST | `/tasks` | Cria tarefa | `201` |
 | GET | `/tasks/{id}` | Busca tarefa | `200` |
 | PUT | `/tasks/{id}` | Atualiza tarefa | `200` |
 | DELETE | `/tasks/{id}` | Remove tarefa | `204` |
 | GET | `/health` | Verifica serviço e dependências | `200` ou `503` |
 
-Corpo de tarefa: `{"title":"...","description":"...","status":"todo|doing|done"}`.
+Corpo de tarefa: `{"title":"...","description":"...","status":"todo|doing|done"}`. `status` é opcional no `POST`
+(padrão `todo`) e aceita apenas `todo`, `doing` ou `done`.
+
+### Frontend
+
+A SPA Angular consome as APIs por URLs relativas (`/api/identity`, `/api/tasks`, `/api/notifications`) e o NGINX faz
+proxy para os serviços. Rotas protegidas por `authGuard`:
+
+| Rota | Tela |
+|---|---|
+| `/login`, `/register` | Autenticação |
+| `/dashboard` | Indicadores e tarefas recentes |
+| `/tasks` | Lista com busca e filtros |
+| `/tasks/board` | Quadro por status |
+| `/tasks/new`, `/tasks/:id/edit` | Criação e edição |
+| `/tasks/:id` | Detalhe da tarefa |
+| `/activities` (`/notifications` redireciona) | Atividades e saúde do consumidor |
+
+`TaskDataService.list()` pagina em blocos de 100 até esgotar os resultados, respeitando o máximo do backend.
 
 ### Notifications
 
@@ -100,7 +118,7 @@ notificação externa implementada.
 
 | Status | Quando                                                                                 |
 |--------|----------------------------------------------------------------------------------------|
-| `400`  | JSON inválido, campo desconhecido, paginação inválida, `id` inválido ou título ausente |
+| `400`  | JSON inválido, campo desconhecido, paginação inválida, `id` inválido, título ausente ou status inválido |
 | `401`  | JWT ausente, inválido ou expirado; credenciais incorretas no login                     |
 | `404`  | tarefa não encontrada ou pertencente a outro usuário                                   |
 | `409`  | e-mail já cadastrado em `/register`                                                    |
@@ -125,7 +143,8 @@ notificação externa implementada.
 
 PostgreSQL, RabbitMQ, Tempo, Prometheus e Grafana usam volumes nomeados. Redes internas separam dados de Identity, dados
 de Task, mensageria e telemetria. A rede `edge` contém apenas frontend e APIs. Cada serviço acessa somente dependências
-necessárias ao seu papel.
+necessárias ao seu papel. Como redes Docker `internal` não publicam portas, o Grafana também participa de uma rede
+bridge `admin` dedicada, usada apenas para expor `127.0.0.1:3000`.
 
 O armazenamento do JWT no frontend e suas mitigações estão em [frontend/SECURITY.md](frontend/SECURITY.md).
 
@@ -141,6 +160,7 @@ cd frontend
 npm install
 npm run start
 npm run build
+npm test -- --no-watch --code-coverage
 ```
 
 Os três serviços importam o módulo local `shared/` (via `replace`) com correlação, logging, middleware, auth, HTTP e
