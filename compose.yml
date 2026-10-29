@@ -135,6 +135,7 @@ services:
       - grafana-data:/var/lib/grafana
     networks:
       - telemetry
+      - admin
 
   frontend:
     build:
@@ -267,3 +268,4 @@ networks:
     internal: true
   telemetry:
     internal: true
+  admin:
