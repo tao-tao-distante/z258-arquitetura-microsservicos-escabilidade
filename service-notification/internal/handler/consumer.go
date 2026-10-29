@@ -35,14 +35,25 @@ type Channel interface {
 
 // Consumer consome eventos task.created da fila de notificações.
 type Consumer struct {
-	ch     Channel
-	log    *slog.Logger
-	active atomic.Bool
+	ch      Channel
+	log     *slog.Logger
+	active  atomic.Bool
+	metrics counter
 }
 
+type counter interface{ Inc(...string) }
+
+type noopCounter struct{}
+
+func (noopCounter) Inc(...string) {}
+
 // NewConsumer cria o consumidor com o canal e o logger informados.
-func NewConsumer(ch Channel, log *slog.Logger) *Consumer {
-	return &Consumer{ch: ch, log: log}
+func NewConsumer(ch Channel, log *slog.Logger, counters ...counter) *Consumer {
+	metrics := counter(noopCounter{})
+	if len(counters) > 0 && counters[0] != nil {
+		metrics = counters[0]
+	}
+	return &Consumer{ch: ch, log: log, metrics: metrics}
 }
 
 // Start declara a topologia, aplica prefetch e consome até o contexto ser cancelado.
@@ -102,15 +113,19 @@ func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 	if decodeErr := json.Unmarshal(delivery.Body, &event); decodeErr != nil {
 		log.ErrorContext(ctx, "invalid event", "error", decodeErr)
 		if nackErr := delivery.Nack(false, false); nackErr != nil {
+			c.metrics.Inc("nack_error")
 			return fmt.Errorf("nack delivery: %w", nackErr)
 		}
+		c.metrics.Inc("rejected")
 		return nil
 	}
 	if event.TaskID <= 0 || strings.TrimSpace(event.Title) == "" {
 		log.ErrorContext(ctx, "invalid event", "error", "task_id must be positive and title must not be empty")
 		if nackErr := delivery.Nack(false, false); nackErr != nil {
+			c.metrics.Inc("nack_error")
 			return fmt.Errorf("nack delivery: %w", nackErr)
 		}
+		c.metrics.Inc("rejected")
 		return nil
 	}
 
@@ -119,8 +134,10 @@ func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 		"title", event.Title,
 	)
 	if ackErr := delivery.Ack(false); ackErr != nil {
+		c.metrics.Inc("ack_error")
 		return fmt.Errorf("ack delivery: %w", ackErr)
 	}
+	c.metrics.Inc("acked")
 	return nil
 }
 

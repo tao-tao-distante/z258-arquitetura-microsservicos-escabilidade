@@ -51,6 +51,8 @@ services:
       start_period: 20s
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+      - ./provisioning/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./provisioning/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     networks:
       - messaging
 
@@ -109,6 +111,7 @@ services:
       - prometheus-data:/prometheus
     networks:
       - telemetry
+      - messaging
 
   grafana:
     image: grafana/grafana:13.3.0
@@ -132,6 +135,7 @@ services:
       start_period: 30s
     volumes:
       - ./provisioning/grafana:/etc/grafana/provisioning:ro
+      - ./provisioning/grafana/dashboard-definitions:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     networks:
       - telemetry

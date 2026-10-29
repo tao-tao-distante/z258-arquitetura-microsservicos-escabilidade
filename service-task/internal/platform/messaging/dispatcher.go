@@ -31,11 +31,22 @@ type Dispatcher struct {
 	store     OutboxStore
 	publisher ReliablePublisher
 	log       *slog.Logger
+	metrics   counter
 }
 
+type counter interface{ Inc(...string) }
+
+type noopCounter struct{}
+
+func (noopCounter) Inc(...string) {}
+
 // NewDispatcher cria o dispatcher com store, publisher e logger informados.
-func NewDispatcher(store OutboxStore, publisher ReliablePublisher, log *slog.Logger) *Dispatcher {
-	return &Dispatcher{store: store, publisher: publisher, log: log}
+func NewDispatcher(store OutboxStore, publisher ReliablePublisher, log *slog.Logger, counters ...counter) *Dispatcher {
+	metrics := counter(noopCounter{})
+	if len(counters) > 0 && counters[0] != nil {
+		metrics = counters[0]
+	}
+	return &Dispatcher{store: store, publisher: publisher, log: log, metrics: metrics}
 }
 
 // Run despacha um evento a cada 500 ms até o contexto ser cancelado.
@@ -60,6 +71,7 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) error {
 	defer span.End()
 	event, err := d.store.ClaimOutbox(ctx)
 	if err != nil {
+		d.metrics.Inc("claim_error")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("claim event: %w", err)
@@ -72,12 +84,16 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) error {
 	if err := d.publisher.Publish(eventCtx, event.EventID, event.EventType, event.Payload); err != nil {
 		platformlogger.WithCorrelation(eventCtx, d.log).ErrorContext(eventCtx, "outbox publish failed", "error", err, "event_id", event.EventID)
 		if retryErr := d.store.RetryOutbox(eventCtx, event.ID, event.Attempts); retryErr != nil {
+			d.metrics.Inc("retry_error")
 			return fmt.Errorf("schedule retry: %w", retryErr)
 		}
+		d.metrics.Inc("retry")
 		return nil
 	}
 	if err := d.store.MarkOutboxSent(eventCtx, event.ID); err != nil {
+		d.metrics.Inc("mark_error")
 		return fmt.Errorf("mark event sent: %w", err)
 	}
+	d.metrics.Inc("sent")
 	return nil
 }

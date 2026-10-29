@@ -13,6 +13,7 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-identity/internal/platform/config"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-identity/internal/repository"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-identity/internal/service"
+	platformmetrics "github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/metrics"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -51,11 +52,20 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) (r
 
 	repo := repository.NewPostgresUserRepository(db)
 	svc := service.New(repo, cfg.JWTSecret, time.Hour)
+	metricSet := platformmetrics.New("service-identity")
+	authMetrics := metricSet.Counter(
+		"task_manager_identity_auth_attempts_total",
+		"Total de tentativas de autenticação por operação e resultado.",
+		"operation", "outcome",
+	)
 	h := handler.New(svc, map[string]func(context.Context) error{
 		"postgres": db.PingContext,
-	}, log)
+	}, log).WithAuthMetrics(authMetrics)
 
-	mux := middleware.Correlation(middleware.Logging(log)(h.Routes()))
+	routes := http.NewServeMux()
+	routes.Handle("GET /metrics", metricSet.Handler())
+	routes.Handle("/", h.Routes())
+	mux := middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(routes)))
 	mux = otelhttp.NewHandler(mux, "service-identity")
 	srv := NewServer(cfg.Port, mux)
 	serve := deps.Serve

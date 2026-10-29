@@ -55,10 +55,12 @@ Projeto usa as skills abaixo:
 
 ### Observabilidade
 - **otel-collector**: Recebe métricas e traces via OTLP gRPC (4317). Config em `provisioning/otel-collector/config.yaml`.
-- **prometheus**: Coleta métricas. Config em `provisioning/prometheus/prometheus.yml`.
+- **prometheus**: Coleta `/metrics` dos três serviços, Collector e RabbitMQ. Config em `provisioning/prometheus/prometheus.yml`.
 - **tempo**: Armazenamento de traces distribuídos. Config em `provisioning/tempo/tempo.yaml`.
-- **grafana**: Visualização em `127.0.0.1:3000`. Datasources em `provisioning/grafana/datasources/datasources.yml`.
-- Os três serviços enviam telemetria para `http://otel-collector:4317` via `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- **grafana**: Visualização em `127.0.0.1:3000`. Datasources e três dashboards provisionados em `provisioning/grafana/`.
+- **rabbitmq**: Plugin `rabbitmq_prometheus` em `:15692` somente na rede interna; métricas por objeto separam fila e DLQ.
+- Os serviços exportam traces para `http://otel-collector:4317` e métricas HTTP/runtime/negócio em `/metrics`.
+- Métricas de negócio: autenticação, CRUD de tarefas, dispatch do outbox e consumo Ack/Nack. Nunca usar IDs ou URLs brutas como labels.
 - Validar configs com `docker compose --env-file .env.example config -q` e comandos de validação do `README.md`.
 
 ### Rede e Segurança
@@ -86,6 +88,7 @@ Projeto usa as skills abaixo:
 | [0009](docs/adrs/0009-estrutura-e-layout-de-projeto-go.md)           | `cmd/`, `internal/` e `shared/` com dependências via `replace ../shared`.                                               |
 | [0010](docs/adrs/0010-estrutura-e-arquitetura-de-projeto-angular.md) | Feature-first em `core/{guards,http,interceptors,models,services}`, `shared/components` e `features/*`.                      |
 | [0011](docs/adrs/0011-hardening-infraestrutura-local.md)             | Portas administrativas em loopback, segredos via `.env`, CSP/headers NGINX e containers non-root quando aplicável.      |
+| [0012](docs/adrs/0012-metricas-prometheus-e-dashboards-grafana.md)   | Scrape Prometheus, métricas de negócio, plugin RabbitMQ e três dashboards provisionados.                               |
 
 ## Padrões de Código Go
 

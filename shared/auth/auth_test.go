@@ -156,6 +156,17 @@ func TestMiddlewareRejectsInvalid(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
+func TestMiddlewareReportsUnauthorizedRequest(t *testing.T) {
+	called := 0
+	h := Middleware("secret", func(*http.Request) { called++ })(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/tasks", nil))
+
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Equal(t, 1, called)
+}
+
 func TestMiddlewareAccepts(t *testing.T) {
 	var got *Claims
 	h := Middleware("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

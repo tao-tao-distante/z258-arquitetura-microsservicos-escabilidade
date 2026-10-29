@@ -111,6 +111,19 @@ func TestRateLimiterRejectsExcessRequestsAndResets(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rec.Code)
 }
 
+func TestRateLimiterReportsRejectedRequest(t *testing.T) {
+	limited := 0
+	limiter := NewRateLimiter(0, time.Minute, time.Now).OnLimit(func(*http.Request) { limited++ })
+	rec := httptest.NewRecorder()
+
+	limiter.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(
+		rec, httptest.NewRequest(http.MethodPost, "/login", nil),
+	)
+
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	require.Equal(t, 1, limited)
+}
+
 func TestRateLimiterSeparatesClients(t *testing.T) {
 	limiter := NewRateLimiter(1, time.Minute, time.Now)
 	h := limiter.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))

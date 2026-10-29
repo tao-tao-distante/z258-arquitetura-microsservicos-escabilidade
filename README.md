@@ -12,8 +12,9 @@ cliente -> frontend/NGINX :8081 -> service-identity :8080 -> postgres-identity
                                       |                     |
                                       +---- RabbitMQ <------ service-notification
 
-OTLP -> OpenTelemetry Collector -> Tempo (traces)
-                              \-> Prometheus (metrics) -> Grafana
+serviços /metrics -----\
+RabbitMQ :15692 --------> Prometheus -> Grafana
+OTLP -> OpenTelemetry Collector -> Tempo ----/
 ```
 
 O NGINX é a entrada pública da aplicação em `0.0.0.0:8081`. APIs diretas, Grafana e RabbitMQ Management são portas
@@ -51,8 +52,8 @@ O Compose falha imediatamente se uma variável obrigatória estiver ausente. O u
 | Grafana | http://localhost:3000 | somente loopback |
 | RabbitMQ Management | http://localhost:15672 | somente loopback |
 
-Grafana recebe as credenciais de `.env`. Os datasources Prometheus e Tempo são provisionados automaticamente em
-`provisioning/grafana/datasources/datasources.yml`.
+Grafana recebe as credenciais de `.env`. Os datasources Prometheus e Tempo e os dashboards são provisionados
+automaticamente. Não é necessário importar dashboards manualmente.
 
 ```sh
 docker compose logs -f service-notification
@@ -69,6 +70,7 @@ docker compose down -v    # remove dados locais persistidos
 | POST | `/register` | Cria usuário e devolve JWT | `201` |
 | POST | `/login` | Autentica e devolve JWT | `200` |
 | GET | `/health` | Verifica serviço e PostgreSQL | `200` ou `503` |
+| GET | `/metrics` | Métricas Prometheus do serviço | `200` |
 
 Cadastro/login: `{"email":"user@example.com","password":"secret123"}`.
 
@@ -86,6 +88,7 @@ Rotas de tarefas exigem `Authorization: Bearer <jwt>`.
 | PUT | `/tasks/{id}` | Atualiza tarefa | `200` |
 | DELETE | `/tasks/{id}` | Remove tarefa | `204` |
 | GET | `/health` | Verifica serviço e dependências | `200` ou `503` |
+| GET | `/metrics` | Métricas Prometheus do serviço | `200` |
 
 Corpo de tarefa: `{"title":"...","description":"...","status":"todo|doing|done"}`. `status` é opcional no `POST`
 (padrão `todo`) e aceita apenas `todo`, `doing` ou `done`.
@@ -109,7 +112,8 @@ proxy para os serviços. Rotas protegidas por `authGuard`:
 
 ### Notifications
 
-`GET /health` verifica o processo e RabbitMQ. O consumidor recebe `task.created` na fila durável `task.events`.
+`GET /health` verifica o processo e RabbitMQ; `GET /metrics` expõe métricas Prometheus. O consumidor recebe
+`task.created` na fila durável `task.events`.
 Evento JSON inválido recebe `Nack` sem requeue e segue para `task.events.dlq` pela exchange `tasks.dlx`. O consumidor não
 faz retry próprio; o publisher usa outbox transacional com retry/backoff e entrega at-least-once. Não há entrega de
 notificação externa implementada.
@@ -136,8 +140,42 @@ notificação externa implementada.
 - W3C Trace Context (`traceparent`/`tracestate`) é propagado via `otelhttp`; spans são exportados por OTLP/gRPC quando
   `OTEL_EXPORTER_OTLP_ENDPOINT` está definido. Sem o endpoint, a exportação fica desabilitada e a aplicação segue com
   propagação e provider no-op.
-- Collector, Tempo, Prometheus e Grafana recebem traces. Métricas de negócio ainda não são emitidas. Loki não faz parte
-  desta stack; logs permanecem no `stdout` dos containers.
+- Traces seguem por OTLP/Collector para Tempo. Métricas são coletadas pelo Prometheus nos endpoints internos `/metrics`.
+- Loki não faz parte desta stack; logs permanecem no `stdout` dos containers.
+
+### Métricas de negócio
+
+| Métrica | Labels | Uso |
+|---|---|---|
+| `task_manager_identity_auth_attempts_total` | `operation`, `outcome` | cadastros e logins por resultado |
+| `task_manager_task_operations_total` | `operation`, `outcome` | CRUD de tarefas por resultado |
+| `task_manager_task_outbox_events_total` | `outcome` | eventos enviados, retries e falhas do outbox |
+| `task_manager_notification_events_total` | `outcome` | eventos confirmados, rejeitados e falhas de Ack/Nack |
+
+Todos os serviços também expõem `task_manager_http_requests_total`,
+`task_manager_http_request_duration_seconds`, métricas `go_*` e `process_*`. Labels usam padrões de rota e conjuntos
+limitados; IDs de usuário/tarefa/evento, e-mail, correlation ID, URL bruta e texto de erro não são labels.
+
+Exemplos PromQL:
+
+```promql
+sum by (operation, outcome) (rate(task_manager_task_operations_total[5m]))
+sum by (outcome) (rate(task_manager_task_outbox_events_total[5m]))
+histogram_quantile(0.95, sum by (service, le) (rate(task_manager_http_request_duration_seconds_bucket[5m])))
+```
+
+### Dashboards Grafana
+
+Os arquivos em `provisioning/grafana/dashboard-definitions/` são provisionados na pasta `Task Manager`:
+
+| Dashboard | Visão |
+|---|---|
+| `Task Manager - Visão de Negócio` | cadastro, login, CRUD, outbox e consumo de notificações |
+| `Task Manager - Backends Go` | disponibilidade, taxa HTTP, 5xx, p95/p99, goroutines e memória |
+| `Task Manager - RabbitMQ` | conexões, canais, consumidores, filas/DLQ, vazão, recursos e alarmes |
+
+O plugin oficial `rabbitmq_prometheus` atende internamente em `rabbitmq:15692/metrics`. Métricas por objeto separam
+`task.events` e `task.events.dlq`; `:15692` não é publicado no host.
 
 ## Persistência e redes
 
@@ -204,3 +242,4 @@ exemplo como credencial de um ambiente compartilhado.
 | [0009](docs/adrs/0009-estrutura-e-layout-de-projeto-go.md) | Layout Go |
 | [0010](docs/adrs/0010-estrutura-e-arquitetura-de-projeto-angular.md) | Layout Angular |
 | [0011](docs/adrs/0011-hardening-infraestrutura-local.md) | Hardening da infraestrutura local |
+| [0012](docs/adrs/0012-metricas-prometheus-e-dashboards-grafana.md) | Métricas Prometheus e dashboards Grafana provisionados |

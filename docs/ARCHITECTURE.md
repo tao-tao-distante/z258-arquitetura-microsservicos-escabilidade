@@ -10,7 +10,8 @@ O sistema contém uma SPA Angular servida por NGINX e três serviços Go:
 
 RabbitMQ desacopla criação de tarefas do consumidor. OpenTelemetry Collector, Tempo, Prometheus e Grafana formam a stack
 local de telemetria. Os três serviços exportam traces OTLP/gRPC para `http://otel-collector:4317` (definido no Compose
-via `OTEL_EXPORTER_OTLP_ENDPOINT`); sem essa variável, a instrumentação é desativada e o serviço inicia normalmente.
+via `OTEL_EXPORTER_OTLP_ENDPOINT`); sem essa variável, traces são desativados e o serviço inicia normalmente. Métricas
+Prometheus continuam disponíveis diretamente em `/metrics`.
 
 ## Fluxos
 
@@ -47,15 +48,25 @@ O Collector aceita OTLP/gRPC em `0.0.0.0:4317` e OTLP/HTTP em `0.0.0.0:4318` den
 `memory_limiter` antes de `batch`:
 
 - traces: Collector -> exporter `otlp/tempo` -> Tempo;
-- métricas: Collector -> exporter Prometheus em `:8889` -> scrape pelo Prometheus.
+- métricas OTLP: Collector -> exporter Prometheus em `:8889` -> scrape pelo Prometheus;
+- métricas Go e de negócio: serviços `/metrics` -> scrape direto pelo Prometheus;
+- métricas do broker: plugin `rabbitmq_prometheus` em `rabbitmq:15692/metrics` -> Prometheus.
 
 Tempo 3.1.1 roda em modo monolítico (`target=all`), recebe OTLP em binds explícitos, grava WAL/blocos em `/var/tempo`,
 usa backend local e retenção de 24 horas. Prometheus mantém TSDB por 7 dias. Grafana recebe datasources provisionados
 para ambos. Loki não está implantado; logs são lidos com `docker compose logs`.
 
 Os serviços usam `otelhttp` no servidor HTTP e spans manuais na publicação/consumo AMQP e no dispatch do outbox, portanto
-traces aparecem no Tempo/Grafana. Ainda não há SDK de métricas nas aplicações: o Prometheus coleta apenas as métricas
-internas do Collector, não métricas de negócio ou de runtime dos serviços.
+traces aparecem no Tempo/Grafana. `prometheus/client_golang` expõe runtime Go, processo, taxa/status/latência HTTP e os
+contadores de negócio de autenticação, CRUD de tarefas, outbox e consumo de notificações. Labels usam somente serviço,
+método, padrão da rota, status, operação e resultado; IDs e URLs brutas são proibidos.
+
+O plugin RabbitMQ retorna métricas por objeto para separar `task.events` e `task.events.dlq`. Isso é adequado à stack
+local pequena, mas deve ser desabilitado ou filtrado em ambientes com muitas filas. Prometheus acessa `:15692` pela rede
+interna `messaging`; a porta não é publicada no host.
+
+Grafana provisiona três dashboards versionados em `provisioning/grafana/dashboard-definitions`: visão de negócio,
+backends Go e RabbitMQ. O provider em `provisioning/grafana/dashboards/providers.yml` recarrega arquivos a cada 10s.
 
 ## Segurança e isolamento
 
@@ -88,10 +99,11 @@ preserva os volumes; `down -v` os apaga.
 - O consumidor não envia e-mail, push ou webhook; registra `notification_received`.
 - Não há retry no consumidor; o publisher usa outbox com retry/backoff e entrega at-least-once.
 - Logs não são centralizados e não incluem `trace_id`/`span_id`.
+- Não há Alertmanager nem SLOs formais; dashboards não substituem alertas operacionais.
 - Os Dockerfiles usam usuário não-root e builds sem fallback silencioso; o pin por digest das imagens-base ainda não é
   aplicado (tags de versão são usadas).
 
 ## ADRs
 
 Decisões ficam em [`docs/adrs`](adrs/). ADR-0002 separa correlação de aplicação de W3C Trace Context; ADR-0003 descreve
-semântica real da DLQ; ADR-0011 registra hardening e segmentação da stack local.
+semântica real da DLQ; ADR-0011 registra hardening e segmentação; ADR-0012 define métricas e dashboards.

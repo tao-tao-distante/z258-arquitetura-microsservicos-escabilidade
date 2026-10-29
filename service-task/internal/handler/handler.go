@@ -27,10 +27,17 @@ type TaskService interface {
 
 // Handler expõe os endpoints HTTP de tarefas e health.
 type Handler struct {
-	svc  TaskService
-	deps map[string]func(context.Context) error
-	log  *slog.Logger
+	svc     TaskService
+	deps    map[string]func(context.Context) error
+	log     *slog.Logger
+	metrics counter
 }
+
+type counter interface{ Inc(...string) }
+
+type noopCounter struct{}
+
+func (noopCounter) Inc(...string) {}
 
 // New cria o handler com o serviço, as checagens de dependência e o logger informados.
 func New(svc TaskService, deps map[string]func(context.Context) error, logs ...*slog.Logger) *Handler {
@@ -38,7 +45,15 @@ func New(svc TaskService, deps map[string]func(context.Context) error, logs ...*
 	if len(logs) > 0 && logs[0] != nil {
 		log = logs[0]
 	}
-	return &Handler{svc: svc, deps: deps, log: log}
+	return &Handler{svc: svc, deps: deps, log: log, metrics: noopCounter{}}
+}
+
+// WithTaskMetrics habilita contagem das operações de tarefa.
+func (h *Handler) WithTaskMetrics(metrics counter) *Handler {
+	if metrics != nil {
+		h.metrics = metrics
+	}
+	return h
 }
 
 // Routes monta o mux com health público e rotas de tarefas protegidas por JWT.
@@ -46,12 +61,16 @@ func (h *Handler) Routes(jwtSecret string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.Health)
 
-	protected := auth.Middleware(jwtSecret)
-	mux.Handle("GET /tasks", protected(http.HandlerFunc(h.List)))
-	mux.Handle("POST /tasks", protected(http.HandlerFunc(h.Create)))
-	mux.Handle("GET /tasks/{id}", protected(http.HandlerFunc(h.Get)))
-	mux.Handle("PUT /tasks/{id}", protected(http.HandlerFunc(h.Update)))
-	mux.Handle("DELETE /tasks/{id}", protected(http.HandlerFunc(h.Delete)))
+	protected := func(operation string, next http.Handler) http.Handler {
+		return auth.Middleware(jwtSecret, func(*http.Request) {
+			h.metrics.Inc(operation, "unauthorized")
+		})(next)
+	}
+	mux.Handle("GET /tasks", protected("list", http.HandlerFunc(h.List)))
+	mux.Handle("POST /tasks", protected("create", http.HandlerFunc(h.Create)))
+	mux.Handle("GET /tasks/{id}", protected("get", http.HandlerFunc(h.Get)))
+	mux.Handle("PUT /tasks/{id}", protected("update", http.HandlerFunc(h.Update)))
+	mux.Handle("DELETE /tasks/{id}", protected("delete", http.HandlerFunc(h.Delete)))
 	return mux
 }
 
@@ -81,16 +100,19 @@ func parseID(r *http.Request) (int64, error) {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
+		h.metrics.Inc("list", "unauthorized")
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	limit, offset, err := pagination(r)
 	if err != nil {
+		h.metrics.Inc("list", "invalid_pagination")
 		httpx.WriteError(w, http.StatusBadRequest, "invalid pagination")
 		return
 	}
 	tasks, err := h.svc.List(r.Context(), uid, limit, offset)
 	if err != nil {
+		h.metrics.Inc("list", "error")
 		h.logError(r.Context(), "list tasks", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -98,6 +120,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if tasks == nil {
 		tasks = []domain.Task{}
 	}
+	h.metrics.Inc("list", "success")
 	httpx.WriteJSON(w, http.StatusOK, tasks)
 }
 
@@ -105,24 +128,29 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
+		h.metrics.Inc("create", "unauthorized")
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var p taskPayload
 	if err := decodePayload(w, r, &p); err != nil {
+		h.metrics.Inc("create", "invalid_payload")
 		writePayloadError(w, err)
 		return
 	}
 	task, err := h.svc.Create(r.Context(), uid, p.Title, p.Description, p.Status)
 	if errors.Is(err, domain.ErrInvalidInput) {
+		h.metrics.Inc("create", "invalid_input")
 		httpx.WriteError(w, http.StatusBadRequest, "invalid title or status")
 		return
 	}
 	if err != nil {
+		h.metrics.Inc("create", "error")
 		h.logError(r.Context(), "create task", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	h.metrics.Inc("create", "success")
 	httpx.WriteJSON(w, http.StatusCreated, task)
 }
 
@@ -130,24 +158,29 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
+		h.metrics.Inc("get", "unauthorized")
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id, err := parseID(r)
 	if err != nil {
+		h.metrics.Inc("get", "invalid_id")
 		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
 	task, err := h.svc.Get(r.Context(), id, uid)
 	if errors.Is(err, domain.ErrNotFound) {
+		h.metrics.Inc("get", "not_found")
 		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	if err != nil {
+		h.metrics.Inc("get", "error")
 		h.logError(r.Context(), "get task", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	h.metrics.Inc("get", "success")
 	httpx.WriteJSON(w, http.StatusOK, task)
 }
 
@@ -155,33 +188,40 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
+		h.metrics.Inc("update", "unauthorized")
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id, err := parseID(r)
 	if err != nil {
+		h.metrics.Inc("update", "invalid_id")
 		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
 	var p taskPayload
 	if err := decodePayload(w, r, &p); err != nil {
+		h.metrics.Inc("update", "invalid_payload")
 		writePayloadError(w, err)
 		return
 	}
 	task, err := h.svc.Update(r.Context(), id, uid, p.Title, p.Description, p.Status)
 	if errors.Is(err, domain.ErrInvalidInput) {
+		h.metrics.Inc("update", "invalid_input")
 		httpx.WriteError(w, http.StatusBadRequest, "invalid task")
 		return
 	}
 	if errors.Is(err, domain.ErrNotFound) {
+		h.metrics.Inc("update", "not_found")
 		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	if err != nil {
+		h.metrics.Inc("update", "error")
 		h.logError(r.Context(), "update task", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	h.metrics.Inc("update", "success")
 	httpx.WriteJSON(w, http.StatusOK, task)
 }
 
@@ -189,24 +229,29 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
+		h.metrics.Inc("delete", "unauthorized")
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id, err := parseID(r)
 	if err != nil {
+		h.metrics.Inc("delete", "invalid_id")
 		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
 	err = h.svc.Delete(r.Context(), id, uid)
 	if errors.Is(err, domain.ErrNotFound) {
+		h.metrics.Inc("delete", "not_found")
 		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	if err != nil {
+		h.metrics.Inc("delete", "error")
 		h.logError(r.Context(), "delete task", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	h.metrics.Inc("delete", "success")
 	w.WriteHeader(http.StatusNoContent)
 }
 

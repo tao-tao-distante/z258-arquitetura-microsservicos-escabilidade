@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceito, com instrumentação OpenTelemetry de traces implementada.
+Aceito, com traces OpenTelemetry e métricas Prometheus implementados.
 
 ## Data
 
@@ -30,19 +30,21 @@ Os serviços criam spans no servidor HTTP (`otelhttp`), na publicação/consumo 
 permanecem indexados por `correlation_id`; `trace_id`/`span_id` ainda não são adicionados aos logs.
 
 Collector, Tempo, Prometheus e Grafana são provisionados. Os serviços exportam traces OTLP quando
-`OTEL_EXPORTER_OTLP_ENDPOINT` está definido (o Compose aponta para `http://otel-collector:4317`). Métricas de runtime
-e de negócio ainda não são exportadas pelas aplicações; o Prometheus coleta apenas métricas internas do Collector.
+`OTEL_EXPORTER_OTLP_ENDPOINT` está definido (o Compose aponta para `http://otel-collector:4317`). Os serviços também
+expõem métricas HTTP, runtime e negócio em `/metrics`, coletadas diretamente pelo Prometheus conforme ADR-0012.
 
 ## Consequências
 
 - Bom: uma requisição e seu evento podem ser localizados nos logs por `correlation_id`.
 - Bom: traces HTTP, AMQP e de dispatch do outbox são exportados para o Tempo e permitem visualizar a árvore de spans.
 - Ruim: `correlation_id` e `trace_id` são independentes; não há link direto entre log e trace.
-- Ruim: métricas de aplicação não são exportadas e logs ficam apenas no `stdout`; Loki não faz parte da solução.
+- Bom: métricas de aplicação e RabbitMQ alimentam dashboards versionados conforme ADR-0012.
+- Ruim: logs ficam apenas no `stdout`; Loki não faz parte da solução.
 
 ## Confirmação
 
 Enviar `x-correlation-id: 646a4ca0-94d8-4f4a-b0f0-31fb0ac7b31d`, verificar o mesmo header na resposta e buscar o
 valor nos logs do serviço e do consumidor. Enviar valor inválido e confirmar que a resposta traz um UUID v4 novo, usado
 também no evento AMQP. Subir a stack com `OTEL_EXPORTER_OTLP_ENDPOINT` definido e confirmar no Tempo/Grafana os spans
-de `service-identity`, `service-task` e `service-notification`, incluindo o span de consumo AMQP.
+de `service-identity`, `service-task` e `service-notification`, incluindo o span de consumo AMQP. Confirmar também os
+quatro jobs de scrape e os dashboards descritos no ADR-0012.

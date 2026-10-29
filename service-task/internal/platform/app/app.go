@@ -18,6 +18,7 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/platform/messaging"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/repository"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/service"
+	platformmetrics "github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/metrics"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/middleware"
 )
 
@@ -101,6 +102,17 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) er
 
 	repo := repository.NewPostgresTaskRepository(db)
 	svc := service.New(repo)
+	metricSet := platformmetrics.New("service-task")
+	taskMetrics := metricSet.Counter(
+		"task_manager_task_operations_total",
+		"Total de operações de tarefa por operação e resultado.",
+		"operation", "outcome",
+	)
+	outboxMetrics := metricSet.Counter(
+		"task_manager_task_outbox_events_total",
+		"Total de eventos do outbox por resultado do dispatch.",
+		"outcome",
+	)
 	h := handler.New(svc, map[string]func(context.Context) error{
 		"postgres": db.PingContext,
 		"rabbitmq": func(context.Context) error {
@@ -109,9 +121,12 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) er
 			}
 			return nil
 		},
-	}, log)
+	}, log).WithTaskMetrics(taskMetrics)
 
-	mux := middleware.Correlation(middleware.Logging(log)(otelhttp.NewHandler(h.Routes(cfg.JWTSecret), "service-task.http")))
+	routes := http.NewServeMux()
+	routes.Handle("GET /metrics", metricSet.Handler())
+	routes.Handle("/", h.Routes(cfg.JWTSecret))
+	mux := middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(otelhttp.NewHandler(routes, "service-task.http"))))
 	srv := NewServer(cfg.Port, mux)
 
 	dispatchCtx, stopDispatcher := context.WithCancel(ctx)
@@ -119,7 +134,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) er
 	dispatcherWG.Add(1)
 	go func() {
 		defer dispatcherWG.Done()
-		messaging.NewDispatcher(repo, pub, log).Run(dispatchCtx)
+		messaging.NewDispatcher(repo, pub, log, outboxMetrics).Run(dispatchCtx)
 	}()
 	defer func() {
 		stopDispatcher()

@@ -27,7 +27,14 @@ type Handler struct {
 	deps    map[string]func(context.Context) error
 	log     *slog.Logger
 	limiter *middleware.RateLimiter
+	metrics counter
 }
+
+type counter interface{ Inc(...string) }
+
+type noopCounter struct{}
+
+func (noopCounter) Inc(...string) {}
 
 // New cria o handler com o serviço, as checagens de dependência e o logger informados.
 func New(svc AuthService, deps map[string]func(context.Context) error, logs ...*slog.Logger) *Handler {
@@ -35,7 +42,23 @@ func New(svc AuthService, deps map[string]func(context.Context) error, logs ...*
 	if len(logs) > 0 && logs[0] != nil {
 		log = logs[0]
 	}
-	return &Handler{svc: svc, deps: deps, log: log, limiter: middleware.NewRateLimiter(10, time.Minute, time.Now)}
+	h := &Handler{svc: svc, deps: deps, log: log, metrics: noopCounter{}}
+	h.limiter = middleware.NewRateLimiter(10, time.Minute, time.Now).OnLimit(func(r *http.Request) {
+		operation := "login"
+		if r.URL.Path == "/register" {
+			operation = "register"
+		}
+		h.metrics.Inc(operation, "rate_limited")
+	})
+	return h
+}
+
+// WithAuthMetrics habilita contagem de tentativas por operação e resultado.
+func (h *Handler) WithAuthMetrics(metrics counter) *Handler {
+	if metrics != nil {
+		h.metrics = metrics
+	}
+	return h
 }
 
 type credentials struct {
@@ -62,23 +85,28 @@ func (h *Handler) Routes() http.Handler {
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	c, status, err := decodeCredentials(w, r)
 	if err != nil {
+		h.metrics.Inc("register", "invalid_payload")
 		httpx.WriteError(w, status, "invalid payload")
 		return
 	}
 	user, token, err := h.svc.Register(r.Context(), c.Email, c.Password)
 	if errors.Is(err, domain.ErrEmailTaken) {
+		h.metrics.Inc("register", "email_taken")
 		httpx.WriteError(w, http.StatusConflict, "email already taken")
 		return
 	}
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidInput) {
+			h.metrics.Inc("register", "invalid_input")
 			httpx.WriteError(w, http.StatusBadRequest, "invalid email or password")
 			return
 		}
 		h.logInternal(r.Context(), err)
+		h.metrics.Inc("register", "error")
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	h.metrics.Inc("register", "success")
 	httpx.WriteJSON(w, http.StatusCreated, authResponse{ID: user.ID, Email: user.Email, Token: token})
 }
 
@@ -86,23 +114,28 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	c, status, err := decodeCredentials(w, r)
 	if err != nil {
+		h.metrics.Inc("login", "invalid_payload")
 		httpx.WriteError(w, status, "invalid payload")
 		return
 	}
 	user, token, err := h.svc.Login(r.Context(), c.Email, c.Password)
 	if errors.Is(err, domain.ErrInvalidCredentials) {
+		h.metrics.Inc("login", "invalid_credentials")
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidInput) {
+			h.metrics.Inc("login", "invalid_input")
 			httpx.WriteError(w, http.StatusBadRequest, "invalid email or password")
 			return
 		}
 		h.logInternal(r.Context(), err)
+		h.metrics.Inc("login", "error")
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	h.metrics.Inc("login", "success")
 	httpx.WriteJSON(w, http.StatusOK, authResponse{ID: user.ID, Email: user.Email, Token: token})
 }
 

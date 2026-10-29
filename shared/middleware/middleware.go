@@ -72,11 +72,18 @@ type RateLimiter struct {
 	limit   int
 	window  time.Duration
 	now     func() time.Time
+	onLimit func(*http.Request)
 }
 
 // NewRateLimiter cria um limitador com limite, janela e relógio informados.
 func NewRateLimiter(limit int, window time.Duration, now func() time.Time) *RateLimiter {
 	return &RateLimiter{clients: make(map[string]rateWindow), limit: limit, window: window, now: now}
+}
+
+// OnLimit configura a função chamada quando uma requisição é rejeitada.
+func (l *RateLimiter) OnLimit(callback func(*http.Request)) *RateLimiter {
+	l.onLimit = callback
+	return l
 }
 
 // Handler rejeita com 429 quando o cliente excede o limite da janela.
@@ -102,6 +109,9 @@ func (l *RateLimiter) Handler(next http.Handler) http.Handler {
 		}
 		l.mu.Unlock()
 		if limited {
+			if l.onLimit != nil {
+				l.onLimit(r)
+			}
 			w.Header().Set("Retry-After", "60")
 			http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
 			return
