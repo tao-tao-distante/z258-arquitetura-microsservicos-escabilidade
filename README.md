@@ -16,6 +16,17 @@ Plataforma de gerenciamento de tarefas com três microsserviços Go, SPA Angular
 RabbitMQ e uma stack local de observabilidade. Consulte [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) e os
 [ADRs](docs/adrs/).
 
+## Documentação por módulo
+
+| Módulo | README | Conteúdo |
+|---|---|---|
+| `shared` | [`shared/README.md`](shared/README.md) | Pacotes comuns, contratos de auth, correlação, broker, métricas e tracing. |
+| `service-identity` | [`service-identity/README.md`](service-identity/README.md) | Registro/login, bcrypt, emissão de JWT e rate limit. |
+| `service-task` | [`service-task/README.md`](service-task/README.md) | CRUD autenticado, outbox transacional e dispatch AMQP. |
+| `service-notification` | [`service-notification/README.md`](service-notification/README.md) | Consumo de `task.created`, Ack/Nack e DLQ. |
+| `frontend` | [`frontend/README.md`](frontend/README.md) | Rotas, guards, interceptors, sessão, proxy e build NGINX. |
+| `provisioning` | [`provisioning/README.md`](provisioning/README.md) | Prometheus, Tempo, OTel Collector, Grafana e RabbitMQ. |
+
 ## Arquitetura
 
 ```text
