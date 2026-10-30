@@ -23,6 +23,7 @@ type TaskService interface {
 	Get(ctx context.Context, id, userID int64) (*domain.Task, error)
 	Update(ctx context.Context, id, userID int64, title, description, status string) (*domain.Task, error)
 	Delete(ctx context.Context, id, userID int64) error
+	Move(ctx context.Context, move domain.Move) (*domain.Task, error)
 }
 
 // Handler expõe os endpoints HTTP de tarefas e health.
@@ -71,6 +72,7 @@ func (h *Handler) Routes(jwtSecret string) http.Handler {
 	mux.Handle("GET /tasks/{id}", protected("get", http.HandlerFunc(h.Get)))
 	mux.Handle("PUT /tasks/{id}", protected("update", http.HandlerFunc(h.Update)))
 	mux.Handle("DELETE /tasks/{id}", protected("delete", http.HandlerFunc(h.Delete)))
+	mux.Handle("PATCH /tasks/{id}/move", protected("move", http.HandlerFunc(h.Move)))
 	return mux
 }
 
@@ -253,6 +255,52 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	h.metrics.Inc("delete", "success")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type movePayload struct {
+	Status   string `json:"status"`
+	BeforeID *int64 `json:"before_id"`
+	AfterID  *int64 `json:"after_id"`
+}
+
+func (h *Handler) Move(w http.ResponseWriter, r *http.Request) {
+	uid, ok := userIDFrom(r)
+	if !ok {
+		h.metrics.Inc("move", "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := parseID(r)
+	if err != nil {
+		h.metrics.Inc("move", "invalid_id")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var p movePayload
+	if err := decodePayload(w, r, &p); err != nil {
+		h.metrics.Inc("move", "invalid_payload")
+		writePayloadError(w, err)
+		return
+	}
+	task, err := h.svc.Move(r.Context(), domain.Move{ID: id, UserID: uid, Status: p.Status, BeforeID: p.BeforeID, AfterID: p.AfterID})
+	switch {
+	case errors.Is(err, domain.ErrInvalidInput):
+		h.metrics.Inc("move", "invalid_input")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid move")
+	case errors.Is(err, domain.ErrNotFound):
+		h.metrics.Inc("move", "not_found")
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
+	case errors.Is(err, domain.ErrConflict):
+		h.metrics.Inc("move", "conflict")
+		httpx.WriteError(w, http.StatusConflict, "board out of date")
+	case err != nil:
+		h.metrics.Inc("move", "error")
+		h.logError(r.Context(), "move task", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
+	default:
+		h.metrics.Inc("move", "success")
+		httpx.WriteJSON(w, http.StatusOK, task)
+	}
 }
 
 func pagination(r *http.Request) (int, int, error) {

@@ -6,6 +6,7 @@ export interface Task {
   title: string;
   description: string;
   status: TaskStatus;
+  position: number;
   created_at: string;
   updated_at: string;
 }
@@ -15,6 +16,14 @@ export interface TaskPayload {
   description?: string;
   status?: TaskStatus;
 }
+
+export interface TaskMovePayload {
+  status: TaskStatus;
+  before_id: number | null;
+  after_id: number | null;
+}
+
+export type TaskFeedback = 'saved' | 'failed';
 
 export const STATUSES: TaskStatus[] = ['todo', 'doing', 'done'];
 

@@ -20,6 +20,7 @@ type TaskRepository interface {
 	Get(ctx context.Context, id, userID int64) (*domain.Task, error)
 	Update(ctx context.Context, task *domain.Task) (*domain.Task, error)
 	Delete(ctx context.Context, id, userID int64) error
+	Move(ctx context.Context, move domain.Move) (*domain.Task, error)
 }
 
 // PostgresTaskRepository implementa TaskRepository com PostgreSQL.
@@ -32,11 +33,16 @@ func NewPostgresTaskRepository(db *sql.DB) *PostgresTaskRepository {
 	return &PostgresTaskRepository{db: db}
 }
 
-const columns = `id, user_id, title, description, status, created_at, updated_at`
+const columns = `id, user_id, title, description, status, created_at, updated_at, position`
+
+const (
+	positionStep = 1024
+	minGap       = 1e-6
+)
 
 func scanTask(row interface{ Scan(...any) error }) (*domain.Task, error) {
 	var t domain.Task
-	if err := row.Scan(&t.ID, &t.UserID, &t.Title, &t.Description, &t.Status, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	if err := row.Scan(&t.ID, &t.UserID, &t.Title, &t.Description, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.Position); err != nil {
 		return nil, err
 	}
 	return &t, nil
@@ -50,7 +56,9 @@ func (r *PostgresTaskRepository) Create(ctx context.Context, task *domain.Task) 
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	const query = `INSERT INTO tasks (user_id, title, description, status) VALUES ($1, $2, $3, $4)
+	const query = `INSERT INTO tasks (user_id, title, description, status, position)
+		VALUES ($1, $2, $3, $4,
+			(SELECT COALESCE(MIN(position) - 1024, 0) FROM tasks WHERE user_id = $1 AND status = $4))
 		RETURNING ` + columns
 	row := tx.QueryRowContext(ctx, query, task.UserID, task.Title, task.Description, task.Status)
 	t, err := scanTask(row)
@@ -75,7 +83,7 @@ func (r *PostgresTaskRepository) Create(ctx context.Context, task *domain.Task) 
 
 // List devolve as tarefas do usuário com paginação.
 func (r *PostgresTaskRepository) List(ctx context.Context, userID int64, limit, offset int) ([]domain.Task, error) {
-	const query = `SELECT ` + columns + ` FROM tasks WHERE user_id = $1 ORDER BY id DESC LIMIT $2 OFFSET $3`
+	const query = `SELECT ` + columns + ` FROM tasks WHERE user_id = $1 ORDER BY position ASC, id DESC LIMIT $2 OFFSET $3`
 	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
@@ -112,7 +120,11 @@ func (r *PostgresTaskRepository) Get(ctx context.Context, id, userID int64) (*do
 
 // Update atualiza a tarefa do usuário e devolve o registro atualizado.
 func (r *PostgresTaskRepository) Update(ctx context.Context, task *domain.Task) (*domain.Task, error) {
-	const query = `UPDATE tasks SET title = $2, description = $3, status = $4, updated_at = NOW()
+	const query = `UPDATE tasks SET title = $2, description = $3, status = $4,
+		position = CASE WHEN status <> $4
+			THEN (SELECT COALESCE(MIN(position) - 1024, 0) FROM tasks WHERE user_id = $5 AND status = $4)
+			ELSE position END,
+		updated_at = NOW()
 		WHERE id = $1 AND user_id = $5 RETURNING ` + columns
 	row := r.db.QueryRowContext(ctx, query, task.ID, task.Title, task.Description, task.Status, task.UserID)
 	t, err := scanTask(row)
@@ -142,6 +154,104 @@ func (r *PostgresTaskRepository) Delete(ctx context.Context, id, userID int64) e
 	return nil
 }
 
+func (r *PostgresTaskRepository) Move(ctx context.Context, move domain.Move) (*domain.Task, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin move task: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	const lockQuery = `SELECT id FROM tasks WHERE id = $1 AND user_id = $2 FOR UPDATE`
+	var id int64
+	err = tx.QueryRowContext(ctx, lockQuery, move.ID, move.UserID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lock task: %w", err)
+	}
+	position, err := targetPosition(ctx, tx, move)
+	if err != nil {
+		return nil, err
+	}
+	const query = `UPDATE tasks SET status = $3, position = $4, updated_at = NOW() WHERE id = $1 AND user_id = $2
+		RETURNING ` + columns
+	t, err := scanTask(tx.QueryRowContext(ctx, query, move.ID, move.UserID, move.Status, position))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("move task: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit move task: %w", err)
+	}
+	return t, nil
+}
+
+func targetPosition(ctx context.Context, tx *sql.Tx, move domain.Move) (float64, error) {
+	if move.BeforeID == nil && move.AfterID == nil {
+		const query = `SELECT COALESCE(MIN(position) - 1024, 0) FROM tasks WHERE user_id = $1 AND status = $2 AND id <> $3`
+		var position float64
+		if err := tx.QueryRowContext(ctx, query, move.UserID, move.Status, move.ID).Scan(&position); err != nil {
+			return 0, fmt.Errorf("top position: %w", err)
+		}
+		return position, nil
+	}
+	for attempt := 0; ; attempt++ {
+		prev, err := neighborPosition(ctx, tx, move.BeforeID, move)
+		if err != nil {
+			return 0, err
+		}
+		next, err := neighborPosition(ctx, tx, move.AfterID, move)
+		if err != nil {
+			return 0, err
+		}
+		switch {
+		case next == nil:
+			return *prev + positionStep, nil
+		case prev == nil:
+			return *next - positionStep, nil
+		case *prev >= *next:
+			return 0, domain.ErrConflict
+		case *next-*prev >= minGap:
+			return (*prev + *next) / 2, nil
+		case attempt > 0:
+			return 0, domain.ErrConflict
+		}
+		if err := renumber(ctx, tx, move); err != nil {
+			return 0, err
+		}
+	}
+}
+
+func neighborPosition(ctx context.Context, tx *sql.Tx, id *int64, move domain.Move) (*float64, error) {
+	if id == nil {
+		return nil, nil
+	}
+	const query = `SELECT position FROM tasks WHERE id = $1 AND user_id = $2 AND status = $3 AND id <> $4 FOR UPDATE`
+	var position float64
+	err := tx.QueryRowContext(ctx, query, *id, move.UserID, move.Status, move.ID).Scan(&position)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, domain.ErrConflict
+	}
+	if err != nil {
+		return nil, fmt.Errorf("neighbor position: %w", err)
+	}
+	return &position, nil
+}
+
+func renumber(ctx context.Context, tx *sql.Tx, move domain.Move) error {
+	const query = `UPDATE tasks AS t SET position = s.rn * 1024
+		FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY position ASC, id DESC) AS rn
+			FROM tasks WHERE user_id = $1 AND status = $2 AND id <> $3) AS s
+		WHERE t.id = s.id`
+	if _, err := tx.ExecContext(ctx, query, move.UserID, move.Status, move.ID); err != nil {
+		return fmt.Errorf("renumber column: %w", err)
+	}
+	return nil
+}
+
 // Migrate cria as tabelas tasks e task_outbox quando não existem.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	const ddl = `CREATE TABLE IF NOT EXISTS tasks (
@@ -154,6 +264,11 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
 	CREATE INDEX IF NOT EXISTS idx_tasks_user_id_id_desc ON tasks (user_id, id DESC);
+	ALTER TABLE tasks ADD COLUMN IF NOT EXISTS position DOUBLE PRECISION;
+	UPDATE tasks SET position = -id * 1024 WHERE position IS NULL;
+	ALTER TABLE tasks ALTER COLUMN position SET DEFAULT 0;
+	ALTER TABLE tasks ALTER COLUMN position SET NOT NULL;
+	CREATE INDEX IF NOT EXISTS idx_tasks_user_status_position ON tasks (user_id, status, position);
 	CREATE TABLE IF NOT EXISTS task_outbox (
 		id BIGSERIAL PRIMARY KEY,
 		event_id UUID NOT NULL UNIQUE,

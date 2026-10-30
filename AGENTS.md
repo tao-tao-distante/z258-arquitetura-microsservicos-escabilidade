@@ -50,7 +50,7 @@ Projeto usa as skills abaixo:
 
 ### Endpoints Implementados
 - **service-identity**: `POST /register` (201), `POST /login` (200), `GET /health` (200/503).
-- **service-task** (JWT obrigatório): `GET /tasks`, `POST /tasks`, `GET /tasks/{id}`, `PUT /tasks/{id}`, `DELETE /tasks/{id}` (204), `GET /health`.
+- **service-task** (JWT obrigatório): `GET /tasks`, `POST /tasks`, `GET /tasks/{id}`, `PUT /tasks/{id}`, `DELETE /tasks/{id}` (204), `PATCH /tasks/{id}/move` (200/409; reposiciona no quadro), `GET /health`.
 - **service-notification**: `GET /health`; consumo assíncrono de `task.events` com Ack/Nack e DLQ.
 
 ### Observabilidade

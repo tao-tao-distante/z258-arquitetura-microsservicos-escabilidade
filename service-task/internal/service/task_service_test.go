@@ -202,3 +202,57 @@ func TestDeleteNotFound(t *testing.T) {
 	svc := New(newFakeRepo())
 	require.ErrorIs(t, svc.Delete(context.Background(), 99, 1), domain.ErrNotFound)
 }
+
+func (f *fakeRepo) Move(ctx context.Context, move domain.Move) (*domain.Task, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	t, ok := f.tasks[move.ID]
+	if !ok || t.UserID != move.UserID {
+		return nil, domain.ErrNotFound
+	}
+	t.Status = move.Status
+	cp := *t
+	return &cp, nil
+}
+
+func ptr(v int64) *int64 { return &v }
+
+func TestMove(t *testing.T) {
+	tests := []struct {
+		name       string
+		move       domain.Move
+		repoErr    error
+		wantStatus string
+		wantErr    error
+	}{
+		{name: "moves to another column", move: domain.Move{ID: 1, UserID: 1, Status: "doing", BeforeID: ptr(2), AfterID: ptr(3)}, wantStatus: "doing"},
+		{name: "trims status", move: domain.Move{ID: 1, UserID: 1, Status: " done "}, wantStatus: "done"},
+		{name: "rejects empty status", move: domain.Move{ID: 1, UserID: 1, Status: " "}, wantErr: domain.ErrInvalidInput},
+		{name: "rejects unknown status", move: domain.Move{ID: 1, UserID: 1, Status: "archived"}, wantErr: domain.ErrInvalidInput},
+		{name: "rejects itself as previous", move: domain.Move{ID: 1, UserID: 1, Status: "todo", BeforeID: ptr(1)}, wantErr: domain.ErrInvalidInput},
+		{name: "rejects itself as next", move: domain.Move{ID: 1, UserID: 1, Status: "todo", AfterID: ptr(1)}, wantErr: domain.ErrInvalidInput},
+		{name: "rejects same neighbors", move: domain.Move{ID: 1, UserID: 1, Status: "todo", BeforeID: ptr(2), AfterID: ptr(2)}, wantErr: domain.ErrInvalidInput},
+		{name: "not found", move: domain.Move{ID: 99, UserID: 1, Status: "todo"}, wantErr: domain.ErrNotFound},
+		{name: "conflict from repository", move: domain.Move{ID: 1, UserID: 1, Status: "todo"}, repoErr: domain.ErrConflict, wantErr: domain.ErrConflict},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			svc := New(repo)
+			_, err := svc.Create(context.Background(), 1, "a", "", "")
+			require.NoError(t, err)
+			repo.err = tt.repoErr
+
+			task, err := svc.Move(context.Background(), tt.move)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantStatus, task.Status)
+		})
+	}
+}

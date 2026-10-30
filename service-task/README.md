@@ -34,6 +34,13 @@ vem das claims; o cliente nunca o informa.
 | `GET` | `/tasks/{id}` | `200` com a tarefa | `400` id inválido, `401`, `404` quando não pertence ao usuário, `500` |
 | `PUT` | `/tasks/{id}` | `200` com a tarefa atualizada | `400`, `401`, `404`, `413`, `500` |
 | `DELETE` | `/tasks/{id}` | `204` sem corpo | `400`, `401`, `404`, `500` |
+| `PATCH` | `/tasks/{id}/move` | `200` com a tarefa movida (`status` e `position`) | `400` status/vizinhos inválidos, `401`, `404`, `409` quadro desatualizado, `413`, `500` |
+
+`PATCH /tasks/{id}/move` recebe `{"status":"doing","before_id":12,"after_id":null}`: `before_id` é a tarefa
+imediatamente acima e `after_id` a imediatamente abaixo na coluna de destino. O servidor calcula `position` no
+ponto médio entre os vizinhos (ou ±1024 nas pontas; sem vizinhos, vai para o topo) e renumera a coluna quando o
+intervalo se esgota. Vizinho inexistente, de outra coluna ou fora de ordem devolve `409`. `GET /tasks` ordena por
+`position ASC, id DESC`; tarefas novas e mudanças de status via `PUT` entram no topo da coluna.
 | `GET` | `/health` | `200` com `status: ok` | `503` quando PostgreSQL ou RabbitMQ falham |
 | `GET` | `/metrics` | `200` no formato Prometheus | — |
 
@@ -114,7 +121,8 @@ CREATE TABLE tasks (
   description TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'todo',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  position DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
 CREATE TABLE task_outbox (
@@ -131,8 +139,9 @@ CREATE TABLE task_outbox (
 );
 ```
 
-Índices: `(user_id, id DESC)` em `tasks` e `(available_at, id) WHERE sent_at IS NULL`
-em `task_outbox`.
+Índices: `(user_id, id DESC)` e `(user_id, status, position)` em `tasks` e
+`(available_at, id) WHERE sent_at IS NULL` em `task_outbox`. A migração adiciona `position` em bancos existentes
+preenchendo `-id * 1024`, o que preserva a ordem anterior (mais novas primeiro).
 
 ## Configuração
 

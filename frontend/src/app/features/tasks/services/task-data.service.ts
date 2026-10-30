@@ -2,7 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpParams, HttpResponse } from '@angular/common/http';
 import { EMPTY, expand, map, Observable, reduce } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { Task, TaskPayload } from '../models/task.model';
+import { Task, TaskMovePayload, TaskPayload } from '../models/task.model';
 
 @Injectable({ providedIn: 'root' })
 export class TaskDataService {
@@ -36,6 +36,12 @@ export class TaskDataService {
   update(id: number, payload: TaskPayload): Observable<Task> {
     return this.http
       .put<Task>(`${this.api}/tasks/${id}`, payload, { observe: 'response' })
+      .pipe(map((response) => this.bodyForStatus(response, 200)));
+  }
+
+  move(id: number, payload: TaskMovePayload): Observable<Task> {
+    return this.http
+      .patch<Task>(`${this.api}/tasks/${id}/move`, payload, { observe: 'response' })
       .pipe(map((response) => this.bodyForStatus(response, 200)));
   }
 

@@ -24,6 +24,7 @@ type fakeService struct {
 	limit        int
 	offset       int
 	createStatus string
+	move         domain.Move
 }
 
 func (f *fakeService) Create(ctx context.Context, userID int64, title, description, status string) (*domain.Task, error) {
@@ -46,6 +47,11 @@ func (f *fakeService) Update(ctx context.Context, id, userID int64, title, descr
 
 func (f *fakeService) Delete(ctx context.Context, id, userID int64) error {
 	return f.err
+}
+
+func (f *fakeService) Move(ctx context.Context, move domain.Move) (*domain.Task, error) {
+	f.move = move
+	return f.task, f.err
 }
 
 func token(t *testing.T, secret string) string {
@@ -263,6 +269,7 @@ func TestOperationsUnauthorized(t *testing.T) {
 		{"get", h.Get, httptest.NewRequest(http.MethodGet, "/tasks/1", nil)},
 		{"update", h.Update, httptest.NewRequest(http.MethodPut, "/tasks/1", bytes.NewBufferString("{}"))},
 		{"delete", h.Delete, httptest.NewRequest(http.MethodDelete, "/tasks/1", nil)},
+		{"move", h.Move, httptest.NewRequest(http.MethodPatch, "/tasks/1/move", bytes.NewBufferString("{}"))},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

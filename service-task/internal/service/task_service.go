@@ -90,6 +90,33 @@ func (s *TaskService) Delete(ctx context.Context, id, userID int64) error {
 	return nil
 }
 
+func (s *TaskService) Move(ctx context.Context, move domain.Move) (*domain.Task, error) {
+	move.Status = strings.TrimSpace(move.Status)
+	if move.Status == "" || !validNeighbors(move) {
+		return nil, domain.ErrInvalidInput
+	}
+	status, err := normalizeStatus(move.Status)
+	if err != nil {
+		return nil, err
+	}
+	move.Status = status
+	task, err := s.repo.Move(ctx, move)
+	if err != nil {
+		return nil, fmt.Errorf("move task: %w", err)
+	}
+	return task, nil
+}
+
+func validNeighbors(move domain.Move) bool {
+	if move.BeforeID != nil && *move.BeforeID == move.ID {
+		return false
+	}
+	if move.AfterID != nil && *move.AfterID == move.ID {
+		return false
+	}
+	return move.BeforeID == nil || move.AfterID == nil || *move.BeforeID != *move.AfterID
+}
+
 func normalizeStatus(status string) (string, error) {
 	status = strings.TrimSpace(status)
 	if status == "" {

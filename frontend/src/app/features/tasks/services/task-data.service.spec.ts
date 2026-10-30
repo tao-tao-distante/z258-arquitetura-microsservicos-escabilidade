@@ -29,6 +29,7 @@ describe('TaskDataService', () => {
       title: `Task ${id}`,
       description: '',
       status: 'todo' as const,
+      position: id,
       created_at: '',
       updated_at: '',
     });
@@ -58,6 +59,7 @@ describe('TaskDataService', () => {
       title: 'Task',
       description: '',
       status: 'todo',
+      position: 0,
       created_at: '',
       updated_at: '',
     });
@@ -74,5 +76,39 @@ describe('TaskDataService', () => {
     requests.expectOne('/api/tasks/tasks/7').flush(null, { status: 204, statusText: 'No Content' });
 
     expect(completed).toBe(true);
+  });
+
+  it('moves a task with PATCH to the move endpoint', () => {
+    const service = TestBed.inject(TaskDataService);
+    const requests = TestBed.inject(HttpTestingController);
+    let position = 0;
+
+    service.move(7, { status: 'doing', before_id: 2, after_id: null }).subscribe((task) => (position = task.position));
+    const request = requests.expectOne('/api/tasks/tasks/7/move');
+    request.flush({
+      id: 7,
+      user_id: 1,
+      title: 'Task',
+      description: '',
+      status: 'doing',
+      position: 3072,
+      created_at: '',
+      updated_at: '',
+    });
+
+    expect(request.request.method).toBe('PATCH');
+    expect(request.request.body).toEqual({ status: 'doing', before_id: 2, after_id: null });
+    expect(position).toBe(3072);
+  });
+
+  it('rejects an unexpected move status', () => {
+    const service = TestBed.inject(TaskDataService);
+    const requests = TestBed.inject(HttpTestingController);
+    let failed = false;
+
+    service.move(7, { status: 'done', before_id: null, after_id: null }).subscribe({ error: () => (failed = true) });
+    requests.expectOne('/api/tasks/tasks/7/move').flush({ id: 7 }, { status: 202, statusText: 'Accepted' });
+
+    expect(failed).toBe(true);
   });
 });

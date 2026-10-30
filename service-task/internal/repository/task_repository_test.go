@@ -25,10 +25,10 @@ func TestCreate(t *testing.T) {
 	db, mock := newMock(t)
 	now := time.Now()
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO tasks")).
+	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO tasks (user_id, title, description, status, position)")).
 		WithArgs(int64(1), "title", "desc", "todo").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at"}).
-			AddRow(1, 1, "title", "desc", "todo", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at", "position"}).
+			AddRow(1, 1, "title", "desc", "todo", now, now, 0.0))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO task_outbox")).
 		WithArgs(sqlmock.AnyArg(), int64(1), sqlmock.AnyArg(), "").
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -54,8 +54,8 @@ func TestCreateRollsBackWhenOutboxInsertFails(t *testing.T) {
 	now := time.Now()
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO tasks")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at"}).
-			AddRow(1, 1, "title", "desc", "todo", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at", "position"}).
+			AddRow(1, 1, "title", "desc", "todo", now, now, 0.0))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO task_outbox")).WillReturnError(errors.New("outbox down"))
 	mock.ExpectRollback()
 	repo := NewPostgresTaskRepository(db)
@@ -67,10 +67,10 @@ func TestCreateRollsBackWhenOutboxInsertFails(t *testing.T) {
 func TestList(t *testing.T) {
 	db, mock := newMock(t)
 	now := time.Now()
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, user_id, title, description, status, created_at, updated_at FROM tasks")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, user_id, title, description, status, created_at, updated_at, position FROM tasks WHERE user_id = $1 ORDER BY position ASC, id DESC")).
 		WithArgs(int64(1), 50, 0).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at"}).
-			AddRow(1, 1, "t", "d", "todo", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at", "position"}).
+			AddRow(1, 1, "t", "d", "todo", now, now, 0.0))
 	repo := NewPostgresTaskRepository(db)
 	tasks, err := repo.List(context.Background(), 1, 50, 0)
 	require.NoError(t, err)
@@ -97,10 +97,10 @@ func TestListScanError(t *testing.T) {
 func TestGet(t *testing.T) {
 	db, mock := newMock(t)
 	now := time.Now()
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, user_id, title, description, status, created_at, updated_at FROM tasks WHERE id")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, user_id, title, description, status, created_at, updated_at, position FROM tasks WHERE id")).
 		WithArgs(int64(1), int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at"}).
-			AddRow(1, 1, "t", "d", "todo", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at", "position"}).
+			AddRow(1, 1, "t", "d", "todo", now, now, 0.0))
 	repo := NewPostgresTaskRepository(db)
 	task, err := repo.Get(context.Background(), 1, 1)
 	require.NoError(t, err)
@@ -126,10 +126,10 @@ func TestGetError(t *testing.T) {
 func TestUpdate(t *testing.T) {
 	db, mock := newMock(t)
 	now := time.Now()
-	mock.ExpectQuery(regexp.QuoteMeta("UPDATE tasks")).
+	mock.ExpectQuery(regexp.QuoteMeta("position = CASE WHEN status <> $4")).
 		WithArgs(int64(1), "t", "d", "done", int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at"}).
-			AddRow(1, 1, "t", "d", "done", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at", "position"}).
+			AddRow(1, 1, "t", "d", "done", now, now, 0.0))
 	repo := NewPostgresTaskRepository(db)
 	task, err := repo.Update(context.Background(), &domain.Task{ID: 1, UserID: 1, Title: "t", Description: "d", Status: "done"})
 	require.NoError(t, err)
@@ -252,8 +252,8 @@ func TestCreateCommitError(t *testing.T) {
 	now := time.Now()
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO tasks")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at"}).
-			AddRow(1, 1, "title", "desc", "todo", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at", "position"}).
+			AddRow(1, 1, "title", "desc", "todo", now, now, 0.0))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO task_outbox")).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit().WillReturnError(errors.New("commit down"))
 	mock.ExpectRollback()

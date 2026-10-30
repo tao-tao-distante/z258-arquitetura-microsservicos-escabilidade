@@ -110,6 +110,7 @@ Rotas de tarefas exigem `Authorization: Bearer <jwt>`.
 | GET | `/tasks/{id}` | Busca tarefa | `200` |
 | PUT | `/tasks/{id}` | Atualiza tarefa | `200` |
 | DELETE | `/tasks/{id}` | Remove tarefa | `204` |
+| PATCH | `/tasks/{id}/move` | Move a tarefa no quadro (`status`, `before_id`, `after_id`) | `200` |
 | GET | `/health` | Verifica serviço e dependências | `200` ou `503` |
 | GET | `/metrics` | Métricas Prometheus do serviço | `200` |
 
