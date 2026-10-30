@@ -27,8 +27,8 @@ func TestCreate(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO users")).
 		WithArgs("a@b.com", "hash").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "password_hash", "created_at"}).
-			AddRow(1, "a@b.com", "hash", now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "created_at"}).
+			AddRow(1, "a@b.com", "", "hash", now))
 
 	repo := NewPostgresUserRepository(db)
 	u, err := repo.Create(context.Background(), "a@b.com", "hash")
@@ -59,19 +59,20 @@ func TestCreateMapsUniqueViolationToEmailTaken(t *testing.T) {
 func TestFindByEmail(t *testing.T) {
 	db, mock := newMock(t)
 	now := time.Now()
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, email, password_hash, created_at FROM users WHERE email")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, email, name, password_hash, created_at FROM users WHERE email")).
 		WithArgs("a@b.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "password_hash", "created_at"}).
-			AddRow(7, "a@b.com", "hash", now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "created_at"}).
+			AddRow(7, "a@b.com", "Ana", "hash", now))
 	repo := NewPostgresUserRepository(db)
 	u, err := repo.FindByEmail(context.Background(), "a@b.com")
 	require.NoError(t, err)
 	require.Equal(t, int64(7), u.ID)
+	require.Equal(t, "Ana", u.Name)
 }
 
 func TestFindByEmailNotFound(t *testing.T) {
 	db, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, email, password_hash, created_at FROM users WHERE email")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, email, name, password_hash, created_at FROM users WHERE email")).
 		WithArgs("none@b.com").
 		WillReturnError(sql.ErrNoRows)
 	repo := NewPostgresUserRepository(db)
@@ -81,7 +82,7 @@ func TestFindByEmailNotFound(t *testing.T) {
 
 func TestFindByEmailGenericError(t *testing.T) {
 	db, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, email, password_hash, created_at FROM users WHERE email")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, email, name, password_hash, created_at FROM users WHERE email")).
 		WithArgs("a@b.com").
 		WillReturnError(errors.New("boom"))
 	repo := NewPostgresUserRepository(db)
@@ -93,6 +94,8 @@ func TestMigrate(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS users")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta("ALTER TABLE users ADD COLUMN IF NOT EXISTS name")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	require.NoError(t, Migrate(context.Background(), db))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -102,4 +105,13 @@ func TestMigrateError(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS users")).
 		WillReturnError(errors.New("boom"))
 	require.Error(t, Migrate(context.Background(), db))
+}
+
+func TestMigrateAddNameColumnError(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS users")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta("ALTER TABLE users ADD COLUMN IF NOT EXISTS name")).
+		WillReturnError(errors.New("boom"))
+	require.ErrorContains(t, Migrate(context.Background(), db), "name column")
 }

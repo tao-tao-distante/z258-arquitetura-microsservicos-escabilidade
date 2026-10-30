@@ -88,7 +88,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*domai
 
 func normalizeCredentials(email, password string) (string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
-	if email == "" || len(email) > 254 || len(password) < 8 || len(password) > 72 {
+	if email == "" || len(email) > 254 || !validPassword(password) {
 		return "", domain.ErrInvalidInput
 	}
 	address, err := mail.ParseAddress(email)
@@ -96,4 +96,8 @@ func normalizeCredentials(email, password string) (string, error) {
 		return "", domain.ErrInvalidInput
 	}
 	return email, nil
+}
+
+func validPassword(password string) bool {
+	return len(password) >= 8 && len(password) <= 72
 }

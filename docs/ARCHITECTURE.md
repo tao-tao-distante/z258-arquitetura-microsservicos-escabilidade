@@ -4,7 +4,7 @@
 
 O sistema contém uma SPA Angular servida por NGINX e três serviços Go:
 
-- `service-identity`: cadastro, login, JWT e PostgreSQL próprio.
+- `service-identity`: cadastro, login, perfil do usuário (nome e troca de senha), JWT e PostgreSQL próprio.
 - `service-task`: CRUD de tarefas, PostgreSQL próprio e publicação de `task.created`.
 - `service-notification`: consumo AMQP e registro do evento recebido.
 

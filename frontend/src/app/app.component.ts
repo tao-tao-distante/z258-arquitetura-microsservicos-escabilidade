@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
+import { AuthUser } from './core/models/auth.model';
 import { AuthService } from './core/services/auth.service';
 
 interface NavItem {
@@ -11,10 +12,11 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { index: '01', label: 'Visão geral', path: '/dashboard', exact: true },
-  { index: '02', label: 'Todas as tarefas', path: '/tasks', exact: true },
-  { index: '03', label: 'Quadro', path: '/tasks/board', exact: true },
-  { index: '04', label: 'Atividades', path: '/activities', exact: true },
+  { index: '01', label: 'Perfil', path: '/profile', exact: true },
+  { index: '02', label: 'Visão geral', path: '/dashboard', exact: true },
+  { index: '03', label: 'Todas as tarefas', path: '/tasks', exact: true },
+  { index: '04', label: 'Quadro', path: '/tasks/board', exact: true },
+  { index: '05', label: 'Atividades', path: '/activities', exact: true },
 ];
 
 @Component({
@@ -48,10 +50,15 @@ const NAV_ITEMS: NavItem[] = [
           <div class="rail-bottom">
             <p class="project">PROJETO / 2026</p>
             <hr class="rail-rule" />
-            <div class="account">
+            <a
+              routerLink="/profile"
+              routerLinkActive="active"
+              class="account"
+              (click)="closeMenu()"
+            >
               <span class="initials">{{ initials() }}</span>
-              <span class="account-label">MINHA CONTA</span>
-            </div>
+              <span class="account-label">{{ accountLabel() }}</span>
+            </a>
             <button type="button" class="logout" (click)="logout()">Sair →</button>
           </div>
         </aside>
@@ -210,6 +217,12 @@ const NAV_ITEMS: NavItem[] = [
         color: var(--paper-raised);
       }
 
+      .account:hover .account-label,
+      .account.active .account-label {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+
       .logout {
         justify-self: start;
         padding: 0 0 0 11px;
@@ -361,9 +374,10 @@ export class AppComponent {
 
   readonly navItems = NAV_ITEMS;
   readonly mobileItems: NavItem[] = [
-    { index: '01', label: 'INÍCIO', path: '/dashboard' },
-    { index: '02', label: 'TAREFAS', path: '/tasks' },
-    { index: '03', label: 'QUADRO', path: '/tasks/board' },
+    { index: '01', label: 'PERFIL', path: '/profile' },
+    { index: '02', label: 'INÍCIO', path: '/dashboard' },
+    { index: '03', label: 'TAREFAS', path: '/tasks' },
+    { index: '04', label: 'QUADRO', path: '/tasks/board' },
   ];
 
   readonly menuOpen = signal(false);
@@ -373,10 +387,8 @@ export class AppComponent {
     return url.startsWith('/login') || url.startsWith('/register');
   });
   readonly crumb = computed(() => breadcrumbFor(this.currentUrl()));
-  readonly initials = computed(() => {
-    const email = this.auth.user()?.email ?? '';
-    return email.slice(0, 2).toUpperCase() || 'VC';
-  });
+  readonly initials = computed(() => initialsFor(this.auth.user()));
+  readonly accountLabel = computed(() => this.auth.user()?.name.trim().toUpperCase() || 'MINHA CONTA');
   readonly today = formatToday();
 
   constructor() {
@@ -425,7 +437,19 @@ function breadcrumbFor(url: string): string {
   if (path === '/activities') {
     return 'WORKSPACE / ATIVIDADES';
   }
+  if (path === '/profile') {
+    return 'WORKSPACE / CONTA / PERFIL';
+  }
   return 'WORKSPACE';
+}
+
+function initialsFor(user: AuthUser | null): string {
+  const words = (user?.name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+  }
+  const source = words[0] ?? user?.email ?? '';
+  return source.slice(0, 2).toUpperCase() || 'VC';
 }
 
 function formatToday(): string {

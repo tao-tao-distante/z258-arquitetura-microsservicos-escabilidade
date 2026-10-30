@@ -17,6 +17,7 @@ type fakeRepo struct {
 	err       error
 	createErr error
 	findErr   error
+	updateErr error
 }
 
 func newFakeRepo() *fakeRepo { return &fakeRepo{users: map[string]*domain.User{}} }

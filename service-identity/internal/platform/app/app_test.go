@@ -25,6 +25,11 @@ func newMock(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	return db, mock
 }
 
+func expectMigration(mock sqlmock.Sqlmock) {
+	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS users")).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta("ALTER TABLE users ADD COLUMN IF NOT EXISTS name")).WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
 func TestRunOpenDBError(t *testing.T) {
 	deps := Deps{OpenDB: func(string) (*sql.DB, error) { return nil, errors.New("boom") }}
 	require.Error(t, Run(context.Background(), config.Config{}, slog.Default(), deps))
@@ -51,7 +56,7 @@ func TestRunMigrateError(t *testing.T) {
 func TestRunSuccess(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectPing()
-	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS users")).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectMigration(mock)
 	mock.ExpectClose()
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -90,7 +95,7 @@ func TestConfigureDBPool(t *testing.T) {
 func TestRunPropagatesServeError(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectPing()
-	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS users")).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectMigration(mock)
 	mock.ExpectClose()
 	deps := Deps{
 		OpenDB: func(string) (*sql.DB, error) { return db, nil },
@@ -103,7 +108,7 @@ func TestRunPropagatesServeError(t *testing.T) {
 func TestRunAcceptsServerClosed(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectPing()
-	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS users")).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectMigration(mock)
 	mock.ExpectClose()
 	deps := Deps{
 		OpenDB: func(string) (*sql.DB, error) { return db, nil },
@@ -115,7 +120,7 @@ func TestRunAcceptsServerClosed(t *testing.T) {
 func TestRunReturnsDatabaseCloseError(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectPing()
-	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS users")).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectMigration(mock)
 	mock.ExpectClose().WillReturnError(errors.New("close failed"))
 	deps := Deps{
 		OpenDB: func(string) (*sql.DB, error) { return db, nil },
@@ -123,6 +128,24 @@ func TestRunReturnsDatabaseCloseError(t *testing.T) {
 	}
 	err := Run(context.Background(), config.Config{}, slog.Default(), deps)
 	require.ErrorContains(t, err, "close failed")
+}
+
+func TestRunProtectsProfileRoutesWithJWT(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectPing()
+	expectMigration(mock)
+	mock.ExpectClose()
+	var rec *httptest.ResponseRecorder
+	deps := Deps{
+		OpenDB: func(string) (*sql.DB, error) { return db, nil },
+		Serve: func(srv *http.Server) error {
+			rec = httptest.NewRecorder()
+			srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/me", nil))
+			return http.ErrServerClosed
+		},
+	}
+	require.NoError(t, Run(context.Background(), config.Config{JWTSecret: "secret"}, slog.Default(), deps))
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 func TestShutdownRunningServer(t *testing.T) {

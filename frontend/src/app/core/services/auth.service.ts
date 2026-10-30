@@ -3,7 +3,13 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { AuthResponse, Credentials } from '../models/auth.model';
+import {
+  AuthResponse,
+  AuthUser,
+  Credentials,
+  PasswordChange,
+  ProfileUpdate,
+} from '../models/auth.model';
 
 const TOKEN_KEY = 'tm_token';
 const USER_KEY = 'tm_user';
@@ -15,7 +21,7 @@ export class AuthService {
   private readonly api = environment.identityUrl;
 
   readonly token = signal<string | null>(null);
-  readonly user = signal<{ id: number; email: string } | null>(null);
+  readonly user = signal<AuthUser | null>(null);
   readonly isAuthenticated = computed(() => this.token() !== null);
 
   constructor() {
@@ -35,6 +41,24 @@ export class AuthService {
 
   register(credentials: Credentials) {
     return this.authenticate('/register', credentials);
+  }
+
+  loadProfile() {
+    return this.http.get<AuthUser>(`${this.api}/me`).pipe(tap((user) => this.storeUser(user)));
+  }
+
+  updateName(name: string) {
+    const body: ProfileUpdate = { name };
+    return this.http
+      .patch<AuthUser>(`${this.api}/me`, body)
+      .pipe(tap((user) => this.storeUser(user)));
+  }
+
+  changePassword(change: PasswordChange) {
+    return this.http.put<void>(`${this.api}/me/password`, {
+      current_password: change.currentPassword,
+      new_password: change.newPassword,
+    });
   }
 
   logout(): void {
@@ -72,12 +96,17 @@ export class AuthService {
 
   private persist(res: AuthResponse): void {
     window.localStorage.setItem(TOKEN_KEY, res.token);
-    window.localStorage.setItem(USER_KEY, JSON.stringify({ id: res.id, email: res.email }));
     this.token.set(res.token);
-    this.user.set({ id: res.id, email: res.email });
+    this.storeUser({ id: res.id, email: res.email, name: res.name ?? '' });
   }
 
-  private readUser(): { id: number; email: string } | null {
+  private storeUser(user: AuthUser): void {
+    const stored: AuthUser = { id: user.id, email: user.email, name: user.name };
+    window.localStorage.setItem(USER_KEY, JSON.stringify(stored));
+    this.user.set(stored);
+  }
+
+  private readUser(): AuthUser | null {
     const raw = window.localStorage.getItem(USER_KEY);
     if (!raw) {
       return null;
@@ -90,7 +119,8 @@ export class AuthService {
         typeof (user as { id?: unknown }).id === 'number' &&
         typeof (user as { email?: unknown }).email === 'string'
       ) {
-        return user as { id: number; email: string };
+        const { id, email, name } = user as { id: number; email: string; name?: unknown };
+        return { id, email, name: typeof name === 'string' ? name : '' };
       }
       return null;
     } catch {

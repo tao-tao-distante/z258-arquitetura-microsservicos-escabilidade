@@ -21,7 +21,7 @@ RabbitMQ e uma stack local de observabilidade. Consulte [`docs/ARCHITECTURE.md`]
 | Módulo | README | Conteúdo |
 |---|---|---|
 | `shared` | [`shared/README.md`](shared/README.md) | Pacotes comuns, contratos de auth, correlação, broker, métricas e tracing. |
-| `service-identity` | [`service-identity/README.md`](service-identity/README.md) | Registro/login, bcrypt, emissão de JWT e rate limit. |
+| `service-identity` | [`service-identity/README.md`](service-identity/README.md) | Registro/login, perfil (nome e senha), bcrypt, emissão de JWT e rate limit. |
 | `service-task` | [`service-task/README.md`](service-task/README.md) | CRUD autenticado, outbox transacional e dispatch AMQP. |
 | `service-notification` | [`service-notification/README.md`](service-notification/README.md) | Consumo de `task.created`, Ack/Nack e DLQ. |
 | `frontend` | [`frontend/README.md`](frontend/README.md) | Rotas, guards, interceptors, sessão, proxy e build NGINX. |
@@ -92,12 +92,19 @@ docker compose down -v    # remove dados locais persistidos
 |---|---|---|---|
 | POST | `/register` | Cria usuário e devolve JWT | `201` |
 | POST | `/login` | Autentica e devolve JWT | `200` |
+| GET | `/me` | Perfil do usuário autenticado (`{id,email,name}`) | `200` |
+| PATCH | `/me` | Altera o nome (`{"name":"..."}`, 1–100 caracteres) | `200` |
+| PUT | `/me/password` | Troca a senha (`{"current_password":"...","new_password":"..."}`) | `204` |
 | GET | `/health` | Verifica serviço e PostgreSQL | `200` ou `503` |
 | GET | `/metrics` | Métricas Prometheus do serviço | `200` |
 
 Cadastro/login: `{"email":"user@example.com","password":"secret123"}`.
 
-`POST /register` e `POST /login` aceitam 10 requisições por minuto por IP; excedentes recebem `429` com `Retry-After: 60`.
+Respostas de `/register` e `/login` incluem `name` (vazio até o usuário defini-lo no perfil). As rotas `/me` exigem
+`Authorization: Bearer <jwt>`; a senha atual incorreta em `PUT /me/password` devolve `403`.
+
+`POST /register`, `POST /login` e `PUT /me/password` aceitam 10 requisições por minuto por IP; excedentes recebem `429`
+com `Retry-After: 60`.
 
 ### Tasks
 
@@ -131,6 +138,7 @@ proxy para os serviços. Rotas protegidas por `authGuard`:
 | `/tasks/new`, `/tasks/:id/edit` | Criação e edição |
 | `/tasks/:id` | Detalhe da tarefa |
 | `/activities` (`/notifications` redireciona) | Atividades e saúde do consumidor |
+| `/profile` | Perfil: editar nome e alterar senha |
 
 `TaskDataService.list()` pagina em blocos de 100 até esgotar os resultados, respeitando o máximo do backend.
 
@@ -146,12 +154,13 @@ notificação externa implementada.
 
 | Status | Quando                                                                                 |
 |--------|----------------------------------------------------------------------------------------|
-| `400`  | JSON inválido, campo desconhecido, paginação inválida, `id` inválido, título ausente ou status inválido |
+| `400`  | JSON inválido, campo desconhecido, paginação inválida, `id` inválido, título ausente, status inválido, nome ou nova senha inválidos |
 | `401`  | JWT ausente, inválido ou expirado; credenciais incorretas no login                     |
-| `404`  | tarefa não encontrada ou pertencente a outro usuário                                   |
+| `403`  | senha atual incorreta em `PUT /me/password`                                            |
+| `404`  | tarefa não encontrada ou pertencente a outro usuário; usuário do token inexistente em `/me` |
 | `409`  | e-mail já cadastrado em `/register`                                                    |
 | `413`  | corpo acima do limite: 16 KiB em Identity, 1 MiB em Tasks                              |
-| `429`  | limite de 10 requisições por minuto por IP em `/register` e `/login`                   |
+| `429`  | limite de 10 requisições por minuto por IP em `/register`, `/login` e `/me/password`   |
 | `500`  | erro interno não classificado                                                          |
 | `503`  | dependência indisponível retornada por `/health`                                       |
 
@@ -171,7 +180,7 @@ notificação externa implementada.
 
 | Métrica | Labels | Uso |
 |---|---|---|
-| `task_manager_identity_auth_attempts_total` | `operation`, `outcome` | cadastros e logins por resultado |
+| `task_manager_identity_auth_attempts_total` | `operation`, `outcome` | cadastros, logins, leitura/edição de perfil e troca de senha por resultado |
 | `task_manager_task_operations_total` | `operation`, `outcome` | CRUD de tarefas por resultado |
 | `task_manager_task_outbox_events_total` | `outcome` | eventos enviados, retries e falhas do outbox |
 | `task_manager_notification_events_total` | `outcome` | eventos confirmados, rejeitados e falhas de Ack/Nack |

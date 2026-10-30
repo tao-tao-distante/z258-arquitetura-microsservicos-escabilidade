@@ -19,11 +19,15 @@ const maxPayloadBytes = 16 << 10
 type AuthService interface {
 	Register(ctx context.Context, email, password string) (*domain.User, string, error)
 	Login(ctx context.Context, email, password string) (*domain.User, string, error)
+	Profile(ctx context.Context, userID int64) (*domain.User, error)
+	UpdateName(ctx context.Context, userID int64, name string) (*domain.User, error)
+	ChangePassword(ctx context.Context, userID int64, current, next string) error
 }
 
-// Handler expõe os endpoints HTTP de registro, login e health.
+// Handler expõe os endpoints HTTP de registro, login, perfil e health.
 type Handler struct {
 	svc     AuthService
+	secret  string
 	deps    map[string]func(context.Context) error
 	log     *slog.Logger
 	limiter *middleware.RateLimiter
@@ -44,11 +48,7 @@ func New(svc AuthService, deps map[string]func(context.Context) error, logs ...*
 	}
 	h := &Handler{svc: svc, deps: deps, log: log, metrics: noopCounter{}}
 	h.limiter = middleware.NewRateLimiter(10, time.Minute, time.Now).OnLimit(func(r *http.Request) {
-		operation := "login"
-		if r.URL.Path == "/register" {
-			operation = "register"
-		}
-		h.metrics.Inc(operation, "rate_limited")
+		h.metrics.Inc(limitedOperation(r.URL.Path), "rate_limited")
 	})
 	return h
 }
@@ -61,6 +61,23 @@ func (h *Handler) WithAuthMetrics(metrics counter) *Handler {
 	return h
 }
 
+// WithJWT define o segredo usado para validar o Bearer token das rotas de perfil.
+func (h *Handler) WithJWT(secret string) *Handler {
+	h.secret = secret
+	return h
+}
+
+func limitedOperation(path string) string {
+	switch path {
+	case "/register":
+		return "register"
+	case "/me/password":
+		return "change_password"
+	default:
+		return "login"
+	}
+}
+
 type credentials struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -69,15 +86,20 @@ type credentials struct {
 type authResponse struct {
 	ID    int64  `json:"id,omitempty"`
 	Email string `json:"email,omitempty"`
+	Name  string `json:"name"`
 	Token string `json:"token"`
 }
 
-// Routes monta o mux com rate limit em registro/login e correlação global.
+// Routes monta o mux com rate limit em registro/login/troca de senha, perfil protegido por JWT e
+// correlação global.
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("POST /register", h.limiter.Handler(http.HandlerFunc(h.Register)))
 	mux.Handle("POST /login", h.limiter.Handler(http.HandlerFunc(h.Login)))
 	mux.HandleFunc("GET /health", h.Health)
+	mux.Handle("GET /me", h.protected("get_profile", h.GetProfile))
+	mux.Handle("PATCH /me", h.protected("update_profile", h.UpdateProfile))
+	mux.Handle("PUT /me/password", h.limiter.Handler(h.protected("change_password", h.ChangePassword)))
 	return middleware.Correlation(mux)
 }
 
@@ -107,7 +129,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.Inc("register", "success")
-	httpx.WriteJSON(w, http.StatusCreated, authResponse{ID: user.ID, Email: user.Email, Token: token})
+	httpx.WriteJSON(w, http.StatusCreated, authResponse{ID: user.ID, Email: user.Email, Name: user.Name, Token: token})
 }
 
 // Login autentica o usuário e devolve o JWT emitido.
@@ -136,17 +158,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.Inc("login", "success")
-	httpx.WriteJSON(w, http.StatusOK, authResponse{ID: user.ID, Email: user.Email, Token: token})
+	httpx.WriteJSON(w, http.StatusOK, authResponse{ID: user.ID, Email: user.Email, Name: user.Name, Token: token})
 }
 
 func decodeCredentials(w http.ResponseWriter, r *http.Request) (credentials, int, error) {
 	var c credentials
-	if err := httpx.DecodeJSON(w, r, &c, maxPayloadBytes); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			return credentials{}, http.StatusRequestEntityTooLarge, err
-		}
-		return credentials{}, http.StatusBadRequest, err
+	if status, err := decodePayload(w, r, &c); err != nil {
+		return credentials{}, status, err
 	}
 	if c.Email == "" || c.Password == "" {
 		return credentials{}, http.StatusBadRequest, errors.New("credentials required")

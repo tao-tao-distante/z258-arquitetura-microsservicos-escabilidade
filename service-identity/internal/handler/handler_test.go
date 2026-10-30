@@ -17,6 +17,10 @@ type fakeService struct {
 	user  *domain.User
 	token string
 	err   error
+
+	gotUserID           int64
+	gotName             string
+	gotCurrent, gotNext string
 }
 
 func (f *fakeService) Register(ctx context.Context, email, password string) (*domain.User, string, error) {

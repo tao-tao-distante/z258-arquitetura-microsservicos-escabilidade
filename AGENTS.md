@@ -32,13 +32,14 @@ Projeto usa as skills abaixo:
 ## Estrutura e Arquitetura
 
 ### Microsserviços Go
-- **service-identity** (8082:8080): Autenticação, registro, login, emissão/validação JWT. PostgreSQL isolado (postgres-identity).
+- **service-identity** (8082:8080): Autenticação, registro, login, perfil (nome e troca de senha), emissão/validação JWT. PostgreSQL isolado (postgres-identity).
 - **service-task** (8083:8080): CRUD de tarefas protegido por JWT. PostgreSQL isolado (postgres-task). Grava a tarefa e o evento `task.created` em `task_outbox` na mesma transação; um dispatcher publica no RabbitMQ com publisher confirms, `mandatory`, retry/backoff e `x-correlation-id` nos headers AMQP.
 - **service-notification** (8084:8080): Consumidor AMQP assíncrono. Extrai `x-correlation-id` dos headers AMQP. Suporte a Dead Letter Queue (DLQ): evento inválido recebe `Nack(false,false)` e segue para `task.events.dlq` via `tasks.dlx`.
 
 ### Frontend
 - **frontend** (8081:80): SPA Angular 20 servida via NGINX. Interceptor HTTP global injeta `x-correlation-id` (UUID v4) em todas as requisições.
-- Estrutura feature-first (ADR-0010): `src/app/core/{guards,http,interceptors,models,services}`, `src/app/shared/components`, `src/app/features/{auth,dashboard,tasks,notifications}`.
+- Estrutura feature-first (ADR-0010): `src/app/core/{guards,http,interceptors,models,services}`, `src/app/shared/components`, `src/app/features/{auth,dashboard,tasks,notifications,profile}`.
+- Tela `/profile` (`features/profile`): edita o nome e troca a senha via `/api/identity/me`.
 - URLs relativas em `src/environments/environment.ts` (`/api/identity`, `/api/tasks`, `/api/notifications`), resolvidas pelo proxy do `frontend/nginx.conf` para evitar CORS.
 - Build de produção em `frontend/dist/frontend/browser`; Dockerfile copia esse diretório e o `nginx.conf` para o container.
 
@@ -49,7 +50,7 @@ Projeto usa as skills abaixo:
 - **PostgreSQL 15**: Database-per-service (ADR-0001). `postgres-identity` e `postgres-task` com healthcheck `pg_isready`.
 
 ### Endpoints Implementados
-- **service-identity**: `POST /register` (201), `POST /login` (200), `GET /health` (200/503).
+- **service-identity**: `POST /register` (201), `POST /login` (200), `GET /health` (200/503). JWT obrigatório: `GET /me` (200), `PATCH /me` (200; altera `name`), `PUT /me/password` (204; 403 se a senha atual estiver incorreta).
 - **service-task** (JWT obrigatório): `GET /tasks`, `POST /tasks`, `GET /tasks/{id}`, `PUT /tasks/{id}`, `DELETE /tasks/{id}` (204), `PATCH /tasks/{id}/move` (200/409; reposiciona no quadro), `GET /health`.
 - **service-notification**: `GET /health`; consumo assíncrono de `task.events` com Ack/Nack e DLQ.
 
@@ -68,10 +69,10 @@ Projeto usa as skills abaixo:
 - APIs diretas (`8082`, `8083`, `8084`), Grafana (`3000`) e RabbitMQ Management (`15672`) vinculadas a `127.0.0.1`.
 - PostgreSQL, AMQP (`5672`), OTLP (`4317`), Tempo e Prometheus não publicam portas no host.
 - `.env` contém segredos aleatórios e distintos, é gitignored e nunca deve ser commitado; use `.env.example` apenas para interpolação.
-- JWT no `localStorage` é decisão consciente com risco residual de XSS; mitigações em `frontend/SECURITY.md` (CSP restritiva, escape Angular, JWT só em `/api/tasks`, expiração validada, limpeza em `401`).
-- Rate limit de `10 req/min/IP` em `/register` e `/login`, com `429` e `Retry-After: 60`.
+- JWT no `localStorage` é decisão consciente com risco residual de XSS; mitigações em `frontend/SECURITY.md` (CSP restritiva, escape Angular, JWT só em `/api/tasks` e `/api/identity/me*`, expiração validada, limpeza em `401`).
+- Rate limit de `10 req/min/IP` em `/register`, `/login` e `/me/password`, com `429` e `Retry-After: 60`.
 - Limites de payload: `16 KiB` em Identity e `1 MiB` em Tasks; excedentes recebem `413`.
-- Contratos de erro: `400` validação, `401` autenticação, `404` recurso, `409` conflito, `413` payload, `429` rate limit, `500` interno, `503` dependência.
+- Contratos de erro: `400` validação, `401` autenticação, `403` senha atual incorreta na troca de senha, `404` recurso, `409` conflito, `413` payload, `429` rate limit, `500` interno, `503` dependência.
 
 ## Mapeamento dos ADRs
 
@@ -117,7 +118,7 @@ Projeto usa as skills abaixo:
 
 ## Metas de Qualidade
 - **Cobertura mínima agregada**: >= 95% por módulo Go (unitários e integração). Pacotes `cmd/` e `internal/domain` podem ficar abaixo isoladamente; a meta é o total do módulo.
-- Cobertura agregada atual por módulo (sem `-race`): `shared` 97.6%, `service-identity` 98.6%, `service-task` 98.3%, `service-notification` 95.3%.
+- Cobertura agregada atual por módulo (sem `-race`): `shared` 97.6%, `service-identity` 99.1%, `service-task` 98.3%, `service-notification` 95.3%.
 - Validar com: `go test -v -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`
 - Frontend: `npm run build` com `strict` e `strictTemplates`; testes com `npm test -- --no-watch --code-coverage` (requer `@vitest/coverage-v8`); não commitar `node_modules/`, `dist/`, `.angular/`, `coverage/` ou `coverage.out`.
 - Smoke test manual: subir `docker compose up -d`, registrar usuário, criar/listar tarefa com JWT e confirmar log `notification_received` no `service-notification` com o `correlation_id` do evento.

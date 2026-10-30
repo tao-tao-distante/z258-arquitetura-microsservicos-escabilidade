@@ -26,14 +26,15 @@ src/app
 │   ├── guards              authGuard
 │   ├── http                apiErrorMessage
 │   ├── interceptors        correlation-id e jwt
-│   ├── models              AuthResponse, Credentials
+│   ├── models              AuthResponse, AuthUser, Credentials, ProfileUpdate, PasswordChange
 │   └── services            AuthService
 ├── shared/components       AuthLayout, PageHeader, FormField, ConfirmDialog
 └── features
     ├── auth                login e register
     ├── dashboard           visão geral
     ├── tasks               board, lista, detalhe e formulário
-    └── notifications       tela de atividades/health do consumidor
+    ├── notifications       tela de atividades/health do consumidor
+    └── profile             perfil: editar nome e alterar senha
 ```
 
 ## Rotas
@@ -50,6 +51,7 @@ src/app
 | `/tasks/:id/edit` | `TaskFormPageComponent` | `authGuard` |
 | `/tasks/:id` | `TaskDetailPageComponent` | `authGuard` |
 | `/activities` | `NotificationsComponent` | `authGuard` |
+| `/profile` | `ProfilePageComponent` | `authGuard` |
 | `/notifications` | redireciona para `/activities` | — |
 | `**` | redireciona para `/dashboard` | — |
 
@@ -64,8 +66,9 @@ A ordem dos interceptors é `correlationIdInterceptor` e depois `jwtInterceptor`
    `crypto.randomUUID()` quando disponível e um fallback com
    `crypto.getRandomValues` definindo versão 4 e variante RFC 4122.
 2. **JWT**: o token é anexado como `Authorization: Bearer ...` somente quando a
-   URL pertence a `environment.taskUrl` (`/api/tasks`). Login, registro e health
-   de notificações nunca recebem o token.
+   URL pertence a `environment.taskUrl` (`/api/tasks`) ou a `/api/identity/me`
+   (e subrotas, como `/api/identity/me/password`). Login, registro, health e
+   demais rotas do Identity nunca recebem o token.
 3. **401**: em resposta `401` de endpoint protegido, a sessão é limpa e o usuário
    é levado a `/login` com `returnUrl` interno. Respostas `401` de
    `/api/identity/login` e `/api/identity/register` não disparam logout.
@@ -77,7 +80,19 @@ A ordem dos interceptors é `correlationIdInterceptor` e depois `jwtInterceptor`
 - Na inicialização, token malformado, sem `exp` numérico ou expirado é descartado
   junto com o usuário.
 - `sessionToken()` revalida a expiração a cada leitura e limpa a sessão inválida.
+- `tm_user` guarda `{id, email, name}`; sessões antigas sem `name` são aceitas com nome vazio.
 - O risco residual de XSS e as mitigações estão em [`SECURITY.md`](SECURITY.md).
+
+### Perfil
+
+- `Perfil` é o primeiro item (`01`) do menu lateral e da navegação mobile; o bloco "minha conta" do rail também
+  leva a `/profile`. As iniciais e o rótulo da conta usam o nome quando definido (senão, o e-mail).
+- `ProfilePageComponent` carrega `GET /api/identity/me` ao abrir. O e-mail é somente leitura.
+- **Nome**: `PATCH /api/identity/me` com o nome aparado (1 a 100 caracteres); o `AuthService` atualiza o signal
+  `user` e o `tm_user`.
+- **Senha**: senha atual, nova senha e confirmação. A validação local exige a senha atual, nova senha de 8 a 72
+  caracteres, confirmação igual e nova senha diferente da atual. `PUT /api/identity/me/password`; `403` vira
+  "Senha atual incorreta." e `429` mostra o tempo de espera. Após sucesso, os campos são limpos.
 
 ### Dados de tarefas
 

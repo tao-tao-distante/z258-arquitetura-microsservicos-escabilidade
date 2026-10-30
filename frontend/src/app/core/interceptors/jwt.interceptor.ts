@@ -9,8 +9,9 @@ export const jwtInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
   const router = inject(Router);
   const token = auth.sessionToken();
-  const taskRequest = isApiRequest(req.url, environment.taskUrl);
-  const request = token && taskRequest
+  const protectedRequest = isApiRequest(req.url, environment.taskUrl) ||
+    isApiRequest(req.url, `${environment.identityUrl}/me`);
+  const request = token && protectedRequest
     ? req.clone({ setHeaders: { Authorization: `Bearer ${token}` } })
     : req;
 

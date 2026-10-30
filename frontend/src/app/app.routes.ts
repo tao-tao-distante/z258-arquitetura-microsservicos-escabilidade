@@ -37,6 +37,12 @@ export const routes: Routes = [
         (m) => m.NotificationsComponent,
       ),
   },
+  {
+    path: 'profile',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/profile/profile-page.component').then((m) => m.ProfilePageComponent),
+  },
   { path: 'notifications', pathMatch: 'full', redirectTo: 'activities' },
   { path: '**', redirectTo: 'dashboard' },
 ];

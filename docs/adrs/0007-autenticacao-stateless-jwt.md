@@ -42,6 +42,12 @@ Go valide a assinatura do token localmente em microssegundos.
 Validação por testes automatizados em Go onde o `service-task` decodifica e aceita um token válido gerado pelo
 `service-identity` sem conectividade direta entre os dois containers.
 
+### Adendo (2026-10-30): rotas de perfil no Identity
+
+As rotas `GET/PATCH /me` e `PUT /me/password` do `service-identity` validam o mesmo JWT localmente com
+`shared/auth.Middleware`, tomando o `user_id` das claims. A troca de senha não revoga tokens emitidos antes dela; o
+risco fica limitado ao TTL de 1 hora, coerente com a consequência "inviabiliza a revogação instantânea" acima.
+
 ## Prós e Contras das Opções
 
 ### Opção 1: Sessões Centralizadas em Memória (Redis)
