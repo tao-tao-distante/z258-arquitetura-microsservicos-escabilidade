@@ -53,7 +53,8 @@ frontend/
 │   │   ├── core/                       # Lógicas singleton globais da aplicação
 │   │   │   ├── guards/                 # Guards de navegação (auth.guard.ts)
 │   │   │   ├── http/                   # Utilitários HTTP (http-error.utils.ts)
-│   │   │   ├── interceptors/           # Interceptores HTTP (correlation-id.interceptor.ts, jwt.interceptor.ts)
+│   │   │   ├── interceptors/           # Interceptores HTTP (observability.interceptor.ts, jwt.interceptor.ts)
+│   │   │   ├── telemetry/              # Provider e exportador OpenTelemetry do browser
 │   │   │   ├── models/                 # Interfaces/Types do ecossistema global
 │   │   │   └── services/               # Serviços globais (auth.service.ts)
 │   │   │

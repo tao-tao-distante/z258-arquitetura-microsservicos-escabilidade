@@ -10,8 +10,9 @@ O sistema contém uma SPA Angular servida por NGINX e três serviços Go:
 - `service-notification`: consumo AMQP e registro do evento recebido.
 
 RabbitMQ desacopla criação de tarefas do consumidor. OpenTelemetry Collector, Tempo, Prometheus e Grafana formam a stack
-local de telemetria. Os três serviços exportam traces OTLP/gRPC para `http://otel-collector:4317` (definido no Compose
-via `OTEL_EXPORTER_OTLP_ENDPOINT`); sem essa variável, traces são desativados e o serviço inicia normalmente. Métricas
+local de telemetria. O frontend inicia spans `CLIENT` e exporta OTLP/HTTP pelo NGINX em `/otlp/v1/traces`. Os três
+serviços exportam traces OTLP/gRPC para `http://otel-collector:4317` (definido no Compose via
+`OTEL_EXPORTER_OTLP_ENDPOINT`); sem essa variável, traces são desativados e o serviço inicia normalmente. Métricas
 Prometheus continuam disponíveis diretamente em `/metrics`.
 
 ## Fluxos

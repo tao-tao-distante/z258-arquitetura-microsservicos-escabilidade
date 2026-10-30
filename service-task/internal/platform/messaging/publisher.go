@@ -53,7 +53,7 @@ func (p *Publisher) Setup() error {
 
 // Publish publica um evento persistente e aguarda confirmação de roteamento.
 func (p *Publisher) Publish(ctx context.Context, eventID, routingKey string, body []byte) error {
-	ctx, span := otel.Tracer("service-task/messaging").Start(ctx, "rabbitmq publish")
+	ctx, span := otel.Tracer("service-task/messaging").Start(ctx, "rabbitmq publish", trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("messaging.system", "rabbitmq"),

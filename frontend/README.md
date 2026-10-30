@@ -60,7 +60,7 @@ caso contrário, redireciona para `/login` com `returnUrl`.
 
 ## Fluxo HTTP exclusivo do frontend
 
-A ordem dos interceptors é `correlationIdInterceptor` e depois `jwtInterceptor`.
+A ordem dos interceptors é `observabilityInterceptor` e depois `jwtInterceptor`.
 
 1. **Correlação**: toda requisição recebe um `x-correlation-id` UUID v4. Usa
    `crypto.randomUUID()` quando disponível e um fallback com

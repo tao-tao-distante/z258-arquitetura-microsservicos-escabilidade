@@ -21,22 +21,26 @@ desejável, mas correlação de logs e W3C Trace Context são mecanismos diferen
 
 ## Resultado da Decisão
 
-Usar `x-correlation-id` como identificador de aplicação e `log/slog` para logs estruturados. O frontend gera UUID v4;
-middlewares Go aceitam apenas UUIDs v4 válidos e geram um novo quando o header está ausente ou inválido. `service-task` e
-`service-notification` propagam o mesmo valor em header AMQP.
+Usar `x-correlation-id` como identificador de aplicação e `log/slog` para logs estruturados. O frontend gera UUID v4 e
+inicia um span OpenTelemetry `CLIENT` para cada requisição API; middlewares Go aceitam apenas UUIDs v4 válidos e geram um
+novo quando o header está ausente ou inválido. `service-task` e `service-notification` propagam o mesmo valor em header
+AMQP.
 
 `x-correlation-id` não é header W3C. O SDK OpenTelemetry propaga `traceparent`/`tracestate` em HTTP e nos headers AMQP.
-Os serviços criam spans no servidor HTTP (`otelhttp`), na publicação/consumo RabbitMQ e no dispatch do outbox. Os logs
-permanecem indexados por `correlation_id`; `trace_id`/`span_id` ainda não são adicionados aos logs.
+Os serviços criam spans no servidor HTTP (`otelhttp`), na publicação/consumo RabbitMQ e no dispatch do outbox. O
+`service-task` persiste o carrier W3C no outbox junto do evento e o restaura no dispatcher, preservando a mesma árvore de
+spans mesmo após o término da requisição HTTP. Os logs permanecem indexados por `correlation_id`; `trace_id`/`span_id`
+ainda não são adicionados aos logs.
 
-Collector, Tempo, Prometheus e Grafana são provisionados. Os serviços exportam traces OTLP quando
-`OTEL_EXPORTER_OTLP_ENDPOINT` está definido (o Compose aponta para `http://otel-collector:4317`). Os serviços também
-expõem métricas HTTP, runtime e negócio em `/metrics`, coletadas diretamente pelo Prometheus conforme ADR-0012.
+Collector, Tempo, Prometheus e Grafana são provisionados. O frontend exporta OTLP/HTTP pelo proxy same-origin
+`/otlp/v1/traces`; os serviços Go exportam OTLP/gRPC quando `OTEL_EXPORTER_OTLP_ENDPOINT` está definido (o Compose aponta
+para `http://otel-collector:4317`). Os serviços também expõem métricas HTTP, runtime e negócio em `/metrics`, coletadas
+diretamente pelo Prometheus conforme ADR-0012.
 
 ## Consequências
 
 - Bom: uma requisição e seu evento podem ser localizados nos logs por `correlation_id`.
-- Bom: traces HTTP, AMQP e de dispatch do outbox são exportados para o Tempo e permitem visualizar a árvore de spans.
+- Bom: spans do frontend, HTTP, outbox e AMQP formam uma única árvore no Tempo.
 - Ruim: `correlation_id` e `trace_id` são independentes; não há link direto entre log e trace.
 - Bom: métricas de aplicação e RabbitMQ alimentam dashboards versionados conforme ADR-0012.
 - Ruim: logs ficam apenas no `stdout`; Loki não faz parte da solução.

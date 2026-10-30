@@ -11,6 +11,7 @@ import (
 	platformlogger "github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // OutboxStore define as operações de outbox usadas pelo dispatcher.
@@ -66,19 +67,19 @@ func (d *Dispatcher) Run(ctx context.Context) {
 
 // DispatchOne reivindica, publica e confirma um único evento do outbox.
 func (d *Dispatcher) DispatchOne(ctx context.Context) error {
-	ctx, span := otel.Tracer("service-task/messaging").Start(ctx, "outbox dispatch")
-	defer span.End()
 	event, err := d.store.ClaimOutbox(ctx)
 	if err != nil {
 		d.metrics.Inc("claim_error")
-		recordSpanError(span, err)
 		return fmt.Errorf("claim event: %w", err)
 	}
 	if event == nil {
 		return nil
 	}
+	eventCtx := otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(event.TraceContext))
+	eventCtx = correlation.NewContext(eventCtx, event.CorrelationID)
+	eventCtx, span := otel.Tracer("service-task/messaging").Start(eventCtx, "outbox dispatch")
+	defer span.End()
 	span.SetAttributes(attribute.String("messaging.message.id", event.EventID))
-	eventCtx := correlation.NewContext(ctx, event.CorrelationID)
 	if err := d.publisher.Publish(eventCtx, event.EventID, event.EventType, event.Payload); err != nil {
 		platformlogger.WithCorrelation(eventCtx, d.log).ErrorContext(eventCtx, "outbox publish failed", "error", err, "event_id", event.EventID)
 		if retryErr := d.store.RetryOutbox(eventCtx, event.ID, event.Attempts); retryErr != nil {

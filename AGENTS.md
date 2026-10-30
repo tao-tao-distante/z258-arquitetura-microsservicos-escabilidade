@@ -37,8 +37,8 @@ Projeto usa as skills abaixo:
 - **service-notification** (8084:8080): Consumidor AMQP assíncrono. Extrai `x-correlation-id` dos headers AMQP. Suporte a Dead Letter Queue (DLQ): evento inválido recebe `Nack(false,false)` e segue para `task.events.dlq` via `tasks.dlx`.
 
 ### Frontend
-- **frontend** (8081:80): SPA Angular 20 servida via NGINX. Interceptor HTTP global injeta `x-correlation-id` (UUID v4) em todas as requisições.
-- Estrutura feature-first (ADR-0010): `src/app/core/{guards,http,interceptors,models,services}`, `src/app/shared/components`, `src/app/features/{auth,dashboard,tasks,notifications,profile}`.
+- **frontend** (8081:80): SPA Angular 20 servida via NGINX. Interceptor HTTP global inicia span OpenTelemetry `CLIENT` e injeta `traceparent` e `x-correlation-id` (UUID v4) em todas as requisições; o NGINX encaminha `/otlp/v1/traces` ao Collector.
+- Estrutura feature-first (ADR-0010): `src/app/core/{guards,http,interceptors,models,services,telemetry}`, `src/app/shared/components`, `src/app/features/{auth,dashboard,tasks,notifications,profile}`.
 - Tela `/profile` (`features/profile`): edita o nome e troca a senha via `/api/identity/me`.
 - Tarefas (`features/tasks`): formulário com prioridade e prazo; lista com filtros de prioridade/atrasadas e ordenação no cliente (estado na URL); detalhe com linha do tempo do histórico (`TaskHistoryComponent`). Regras de data em `features/tasks/task.utils.ts`.
 - URLs relativas em `src/environments/environment.ts` (`/api/identity`, `/api/tasks`, `/api/notifications`), resolvidas pelo proxy do `frontend/nginx.conf` para evitar CORS.
@@ -88,7 +88,7 @@ Projeto usa as skills abaixo:
 | [0007](docs/adrs/0007-autenticacao-stateless-jwt.md)                 | JWT HS256 emitido pelo Identity, validado pelo Task, sem sessão no servidor.                                            |
 | [0008](docs/adrs/0008-containerizacao-docker-compose.md)             | Multi-stage builds, `CGO_ENABLED=0`, Compose com healthchecks, redes e volumes nomeados.                                |
 | [0009](docs/adrs/0009-estrutura-e-layout-de-projeto-go.md)           | `cmd/`, `internal/` e `shared/` com dependências via `replace ../shared`.                                               |
-| [0010](docs/adrs/0010-estrutura-e-arquitetura-de-projeto-angular.md) | Feature-first em `core/{guards,http,interceptors,models,services}`, `shared/components` e `features/*`.                      |
+| [0010](docs/adrs/0010-estrutura-e-arquitetura-de-projeto-angular.md) | Feature-first em `core/{guards,http,interceptors,models,services,telemetry}`, `shared/components` e `features/*`.            |
 | [0011](docs/adrs/0011-hardening-infraestrutura-local.md)             | Portas administrativas em loopback, segredos via `.env`, CSP/headers NGINX e containers non-root quando aplicável.      |
 | [0012](docs/adrs/0012-metricas-prometheus-e-dashboards-grafana.md)   | Scrape Prometheus, métricas de negócio, plugin RabbitMQ e três dashboards provisionados.                               |
 | [0013](docs/adrs/0013-prioridade-prazo-e-historico-de-tarefas.md)    | Prioridade e prazo nas tarefas; `task_history` gravado na mesma transação (`created`/`updated`/`moved`), sem reordenações. |

@@ -2,19 +2,24 @@ import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace';
 import { AuthService } from '../services/auth.service';
-import { correlationIdInterceptor } from './correlation-id.interceptor';
+import { setupTelemetry } from '../telemetry/telemetry';
+import { observabilityInterceptor } from './observability.interceptor';
 import { jwtInterceptor } from './jwt.interceptor';
 
 describe('HTTP interceptors', () => {
   const auth = { sessionToken: () => 'valid-token', clearSession: vi.fn() };
+  const traceExporter = new InMemorySpanExporter();
+
+  beforeAll(() => setupTelemetry(new SimpleSpanProcessor({ exporter: traceExporter })));
 
   beforeEach(() => {
     auth.clearSession.mockClear();
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
-        provideHttpClient(withInterceptors([correlationIdInterceptor, jwtInterceptor])),
+        provideHttpClient(withInterceptors([observabilityInterceptor, jwtInterceptor])),
         provideHttpClientTesting(),
         { provide: AuthService, useValue: auth },
       ],
@@ -83,5 +88,15 @@ describe('HTTP interceptors', () => {
 
     Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: original });
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it('starts a W3C trace for API requests', () => {
+    const http = TestBed.inject(HttpClient);
+    const requests = TestBed.inject(HttpTestingController);
+
+    http.get('/api/tasks/tasks').subscribe();
+    const traceparent = requests.expectOne('/api/tasks/tasks').request.headers.get('traceparent');
+
+    expect(traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
   });
 });

@@ -10,6 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/repository"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/broker"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type fakeOutbox struct {
@@ -37,6 +40,13 @@ type fakeReliablePublisher struct{ err error }
 
 func (f fakeReliablePublisher) Publish(context.Context, string, string, []byte) error { return f.err }
 
+type traceCapturingPublisher struct{ spanContext trace.SpanContext }
+
+func (p *traceCapturingPublisher) Publish(ctx context.Context, _ string, _ string, _ []byte) error {
+	p.spanContext = trace.SpanContextFromContext(ctx)
+	return nil
+}
+
 func TestDispatcherMarksConfirmedEventSent(t *testing.T) {
 	store := &fakeOutbox{event: &repository.OutboxEvent{ID: 7, EventID: "event", EventType: broker.RoutingKey, Payload: []byte(`{}`)}}
 	d := NewDispatcher(store, fakeReliablePublisher{}, slog.Default())
@@ -51,6 +61,27 @@ func TestDispatcherRetriesRabbitFailure(t *testing.T) {
 	require.NoError(t, d.DispatchOne(context.Background()))
 	require.Equal(t, int64(7), store.retried)
 	require.Zero(t, store.sent)
+}
+
+func TestDispatcherRestoresPersistedTraceContext(t *testing.T) {
+	oldPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() { otel.SetTextMapPropagator(oldPropagator) })
+
+	store := &fakeOutbox{event: &repository.OutboxEvent{
+		ID:        7,
+		EventID:   "event",
+		EventType: broker.RoutingKey,
+		TraceContext: map[string]string{
+			"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+		},
+	}}
+	publisher := &traceCapturingPublisher{}
+
+	require.NoError(t, NewDispatcher(store, publisher, slog.Default()).DispatchOne(context.Background()))
+	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", publisher.spanContext.TraceID().String())
+	require.Equal(t, "00f067aa0ba902b7", publisher.spanContext.SpanID().String())
+	require.True(t, publisher.spanContext.IsRemote())
 }
 
 func TestDispatcherPropagatesStoreFailure(t *testing.T) {
