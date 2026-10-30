@@ -10,6 +10,7 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-identity/internal/domain"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/httpx"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
+	platformmetrics "github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/metrics"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/middleware"
 )
 
@@ -100,7 +101,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /me", h.protected("get_profile", h.GetProfile))
 	mux.Handle("PATCH /me", h.protected("update_profile", h.UpdateProfile))
 	mux.Handle("PUT /me/password", h.limiter.Handler(h.protected("change_password", h.ChangePassword)))
-	return middleware.Correlation(mux)
+	return middleware.Correlation(platformmetrics.RoutePattern(mux))
 }
 
 // Register cria um usuário e devolve o JWT emitido.

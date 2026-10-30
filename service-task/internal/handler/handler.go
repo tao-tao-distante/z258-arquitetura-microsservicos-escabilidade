@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"path"
@@ -12,18 +13,20 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/auth"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/httpx"
 	platformlogger "github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
+	platformmetrics "github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/metrics"
 )
 
 const maxPayloadBytes = 1 << 20
 
 // TaskService define as operações de tarefas expostas pelo handler.
 type TaskService interface {
-	Create(ctx context.Context, userID int64, title, description, status string) (*domain.Task, error)
-	List(ctx context.Context, userID int64, limit, offset int) ([]domain.Task, error)
+	Create(ctx context.Context, userID int64, in domain.TaskInput) (*domain.Task, error)
+	List(ctx context.Context, query domain.ListQuery) ([]domain.Task, error)
 	Get(ctx context.Context, id, userID int64) (*domain.Task, error)
-	Update(ctx context.Context, id, userID int64, title, description, status string) (*domain.Task, error)
+	Update(ctx context.Context, id, userID int64, in domain.TaskInput) (*domain.Task, error)
 	Delete(ctx context.Context, id, userID int64) error
 	Move(ctx context.Context, move domain.Move) (*domain.Task, error)
+	History(ctx context.Context, id, userID int64, limit, offset int) ([]domain.HistoryEntry, error)
 }
 
 // Handler expõe os endpoints HTTP de tarefas e health.
@@ -73,13 +76,20 @@ func (h *Handler) Routes(jwtSecret string) http.Handler {
 	mux.Handle("PUT /tasks/{id}", protected("update", http.HandlerFunc(h.Update)))
 	mux.Handle("DELETE /tasks/{id}", protected("delete", http.HandlerFunc(h.Delete)))
 	mux.Handle("PATCH /tasks/{id}/move", protected("move", http.HandlerFunc(h.Move)))
-	return mux
+	mux.Handle("GET /tasks/{id}/history", protected("history", http.HandlerFunc(h.History)))
+	return platformmetrics.RoutePattern(mux)
 }
 
 type taskPayload struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
+	Title       string       `json:"title"`
+	Description string       `json:"description"`
+	Status      string       `json:"status"`
+	Priority    string       `json:"priority"`
+	DueDate     *domain.Date `json:"due_date"`
+}
+
+func (p taskPayload) input() domain.TaskInput {
+	return domain.TaskInput{Title: p.Title, Description: p.Description, Status: p.Status, Priority: p.Priority, DueDate: p.DueDate}
 }
 
 func userIDFrom(r *http.Request) (int64, bool) {
@@ -98,7 +108,7 @@ func parseID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(raw, 10, 64)
 }
 
-// List devolve as tarefas do usuário autenticado com paginação.
+// List devolve as tarefas do usuário autenticado com filtros, ordenação e paginação.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
@@ -112,7 +122,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid pagination")
 		return
 	}
-	tasks, err := h.svc.List(r.Context(), uid, limit, offset)
+	query, err := listQuery(r)
+	if err != nil {
+		h.metrics.Inc("list", "invalid_filter")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid filter")
+		return
+	}
+	query.UserID, query.Limit, query.Offset = uid, limit, offset
+	tasks, err := h.svc.List(r.Context(), query)
+	if errors.Is(err, domain.ErrInvalidInput) {
+		h.metrics.Inc("list", "invalid_filter")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid filter")
+		return
+	}
 	if err != nil {
 		h.metrics.Inc("list", "error")
 		h.logError(r.Context(), "list tasks", err)
@@ -140,10 +162,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		writePayloadError(w, err)
 		return
 	}
-	task, err := h.svc.Create(r.Context(), uid, p.Title, p.Description, p.Status)
+	task, err := h.svc.Create(r.Context(), uid, p.input())
 	if errors.Is(err, domain.ErrInvalidInput) {
 		h.metrics.Inc("create", "invalid_input")
-		httpx.WriteError(w, http.StatusBadRequest, "invalid title or status")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid title, status, priority or due date")
 		return
 	}
 	if err != nil {
@@ -206,7 +228,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		writePayloadError(w, err)
 		return
 	}
-	task, err := h.svc.Update(r.Context(), id, uid, p.Title, p.Description, p.Status)
+	task, err := h.svc.Update(r.Context(), id, uid, p.input())
 	if errors.Is(err, domain.ErrInvalidInput) {
 		h.metrics.Inc("update", "invalid_input")
 		httpx.WriteError(w, http.StatusBadRequest, "invalid task")
@@ -301,6 +323,72 @@ func (h *Handler) Move(w http.ResponseWriter, r *http.Request) {
 		h.metrics.Inc("move", "success")
 		httpx.WriteJSON(w, http.StatusOK, task)
 	}
+}
+
+// History devolve o histórico de alterações de uma tarefa do usuário autenticado.
+func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
+	uid, ok := userIDFrom(r)
+	if !ok {
+		h.metrics.Inc("history", "unauthorized")
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id, err := parseHistoryID(r)
+	if err != nil {
+		h.metrics.Inc("history", "invalid_id")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	limit, offset, err := pagination(r)
+	if err != nil {
+		h.metrics.Inc("history", "invalid_pagination")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid pagination")
+		return
+	}
+	entries, err := h.svc.History(r.Context(), id, uid, limit, offset)
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		h.metrics.Inc("history", "not_found")
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
+	case err != nil:
+		h.metrics.Inc("history", "error")
+		h.logError(r.Context(), "task history", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
+	default:
+		if entries == nil {
+			entries = []domain.HistoryEntry{}
+		}
+		h.metrics.Inc("history", "success")
+		httpx.WriteJSON(w, http.StatusOK, entries)
+	}
+}
+
+// parseHistoryID lê o ID da rota /tasks/{id}/history, inclusive fora do mux.
+func parseHistoryID(r *http.Request) (int64, error) {
+	raw := r.PathValue("id")
+	if raw == "" {
+		raw = path.Base(path.Dir(r.URL.Path))
+	}
+	return strconv.ParseInt(raw, 10, 64)
+}
+
+// listQuery lê filtros e ordenação; a validação dos valores fica no serviço.
+func listQuery(r *http.Request) (domain.ListQuery, error) {
+	params := r.URL.Query()
+	query := domain.ListQuery{
+		Status:   params.Get("status"),
+		Priority: params.Get("priority"),
+		Sort:     params.Get("sort"),
+		Order:    params.Get("order"),
+	}
+	if raw := params.Get("overdue"); raw != "" {
+		overdue, err := strconv.ParseBool(raw)
+		if err != nil {
+			return query, fmt.Errorf("parse overdue: %w", err)
+		}
+		query.Overdue = overdue
+	}
+	return query, nil
 }
 
 func pagination(r *http.Request) (int, int, error) {

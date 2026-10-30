@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	lockSQL     = "SELECT id FROM tasks WHERE id = $1 AND user_id = $2 FOR UPDATE"
+	lockSQL     = "SELECT status FROM tasks WHERE id = $1 AND user_id = $2 FOR UPDATE"
 	neighborSQL = "SELECT position FROM tasks WHERE id = $1 AND user_id = $2 AND status = $3 AND id <> $4 FOR UPDATE"
 	topSQL      = "SELECT COALESCE(MIN(position) - 1024, 0) FROM tasks WHERE user_id = $1 AND status = $2 AND id <> $3"
 	renumberSQL = "UPDATE tasks AS t SET position = s.rn * 1024"
@@ -24,8 +24,18 @@ const (
 func int64Ptr(v int64) *int64 { return &v }
 
 func expectLock(mock sqlmock.Sqlmock) {
+	expectLockFrom(mock, "todo")
+}
+
+func expectLockFrom(mock sqlmock.Sqlmock, status string) {
 	mock.ExpectQuery(regexp.QuoteMeta(lockSQL)).WithArgs(int64(5), int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(5))
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(status))
+}
+
+func expectMoveHistory(mock sqlmock.Sqlmock) {
+	mock.ExpectExec(regexp.QuoteMeta(historySQL)).
+		WithArgs(int64(5), int64(1), "moved", jsonArg(`[{"field":"status","from":"todo","to":"doing"}]`), "").
+		WillReturnResult(sqlmock.NewResult(1, 1))
 }
 
 func expectNeighbor(mock sqlmock.Sqlmock, id int64, position float64) {
@@ -36,8 +46,8 @@ func expectNeighbor(mock sqlmock.Sqlmock, id int64, position float64) {
 func expectMoveUpdate(mock sqlmock.Sqlmock, position float64) {
 	now := time.Now()
 	mock.ExpectQuery(regexp.QuoteMeta(moveSQL)).WithArgs(int64(5), int64(1), "doing", position).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "description", "status", "created_at", "updated_at", "position"}).
-			AddRow(5, 1, "t", "d", "doing", now, now, position))
+		WillReturnRows(sqlmock.NewRows(taskColumns).
+			AddRow(5, 1, "t", "d", "doing", now, now, position, "medium", nil))
 }
 
 func TestMoveComputesPosition(t *testing.T) {
@@ -103,6 +113,7 @@ func TestMoveComputesPosition(t *testing.T) {
 			expectLock(mock)
 			tt.expect(mock)
 			expectMoveUpdate(mock, tt.want)
+			expectMoveHistory(mock)
 			mock.ExpectCommit()
 
 			task, err := NewPostgresTaskRepository(db).Move(context.Background(), tt.move)
@@ -258,7 +269,21 @@ func TestMoveFailures(t *testing.T) {
 				expectLock(mock)
 				expectNeighbor(mock, 2, 1024)
 				expectMoveUpdate(mock, 2048)
+				expectMoveHistory(mock)
 				mock.ExpectCommit().WillReturnError(boom)
+			},
+			wantErr: boom,
+		},
+		{
+			name: "history error",
+			move: domain.Move{ID: 5, UserID: 1, Status: "doing", BeforeID: int64Ptr(2)},
+			expect: func(mock sqlmock.Sqlmock) {
+				mock.ExpectBegin()
+				expectLock(mock)
+				expectNeighbor(mock, 2, 1024)
+				expectMoveUpdate(mock, 2048)
+				mock.ExpectExec(regexp.QuoteMeta(historySQL)).WillReturnError(boom)
+				mock.ExpectRollback()
 			},
 			wantErr: boom,
 		},
@@ -275,6 +300,20 @@ func TestMoveFailures(t *testing.T) {
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestMoveWithinSameColumnSkipsHistory(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectBegin()
+	expectLockFrom(mock, "doing")
+	expectNeighbor(mock, 2, 1024)
+	expectMoveUpdate(mock, 2048)
+	mock.ExpectCommit()
+
+	_, err := NewPostgresTaskRepository(db).Move(context.Background(), domain.Move{ID: 5, UserID: 1, Status: "doing", BeforeID: int64Ptr(2)})
+
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestMigrateAddsBoardPosition(t *testing.T) {

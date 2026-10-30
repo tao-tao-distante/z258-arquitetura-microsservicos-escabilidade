@@ -12,6 +12,15 @@ var (
 	ErrConflict     = errors.New("conflict")
 )
 
+// Prioridades aceitas para uma tarefa.
+const (
+	PriorityLow     = "low"
+	PriorityMedium  = "medium"
+	PriorityHigh    = "high"
+	PriorityUrgent  = "urgent"
+	DefaultPriority = PriorityMedium
+)
+
 // Task representa uma tarefa persistida.
 type Task struct {
 	ID          int64     `json:"id"`
@@ -19,9 +28,20 @@ type Task struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Status      string    `json:"status"`
+	Priority    string    `json:"priority"`
+	DueDate     *Date     `json:"due_date"`
 	Position    float64   `json:"position"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// TaskInput reúne os campos editáveis de uma tarefa.
+type TaskInput struct {
+	Title       string
+	Description string
+	Status      string
+	Priority    string
+	DueDate     *Date
 }
 
 type Move struct {
@@ -30,4 +50,26 @@ type Move struct {
 	Status   string
 	BeforeID *int64
 	AfterID  *int64
+}
+
+// Ordenações aceitas na listagem de tarefas.
+const (
+	SortPosition  = "position"
+	SortPriority  = "priority"
+	SortCreatedAt = "created_at"
+	SortDueDate   = "due_date"
+	OrderAsc      = "asc"
+	OrderDesc     = "desc"
+)
+
+// ListQuery descreve filtros, ordenação e paginação da listagem de tarefas.
+type ListQuery struct {
+	UserID   int64
+	Status   string
+	Priority string
+	Overdue  bool
+	Sort     string
+	Order    string
+	Limit    int
+	Offset   int
 }

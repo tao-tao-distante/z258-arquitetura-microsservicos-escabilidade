@@ -9,6 +9,8 @@ const task: Task = {
   title: 'Revisar release',
   description: '',
   status: 'doing',
+  priority: 'medium',
+  due_date: null,
   position: 0,
   created_at: '',
   updated_at: '',

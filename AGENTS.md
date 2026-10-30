@@ -33,13 +33,14 @@ Projeto usa as skills abaixo:
 
 ### Microsserviços Go
 - **service-identity** (8082:8080): Autenticação, registro, login, perfil (nome e troca de senha), emissão/validação JWT. PostgreSQL isolado (postgres-identity).
-- **service-task** (8083:8080): CRUD de tarefas protegido por JWT. PostgreSQL isolado (postgres-task). Grava a tarefa e o evento `task.created` em `task_outbox` na mesma transação; um dispatcher publica no RabbitMQ com publisher confirms, `mandatory`, retry/backoff e `x-correlation-id` nos headers AMQP.
+- **service-task** (8083:8080): CRUD de tarefas protegido por JWT, com prioridade (`low|medium|high|urgent`), prazo (`due_date`) e histórico de alterações (`task_history`, ADR-0013). PostgreSQL isolado (postgres-task). Grava a tarefa, o histórico e o evento `task.created` em `task_outbox` na mesma transação; um dispatcher publica no RabbitMQ com publisher confirms, `mandatory`, retry/backoff e `x-correlation-id` nos headers AMQP.
 - **service-notification** (8084:8080): Consumidor AMQP assíncrono. Extrai `x-correlation-id` dos headers AMQP. Suporte a Dead Letter Queue (DLQ): evento inválido recebe `Nack(false,false)` e segue para `task.events.dlq` via `tasks.dlx`.
 
 ### Frontend
 - **frontend** (8081:80): SPA Angular 20 servida via NGINX. Interceptor HTTP global injeta `x-correlation-id` (UUID v4) em todas as requisições.
 - Estrutura feature-first (ADR-0010): `src/app/core/{guards,http,interceptors,models,services}`, `src/app/shared/components`, `src/app/features/{auth,dashboard,tasks,notifications,profile}`.
 - Tela `/profile` (`features/profile`): edita o nome e troca a senha via `/api/identity/me`.
+- Tarefas (`features/tasks`): formulário com prioridade e prazo; lista com filtros de prioridade/atrasadas e ordenação no cliente (estado na URL); detalhe com linha do tempo do histórico (`TaskHistoryComponent`). Regras de data em `features/tasks/task.utils.ts`.
 - URLs relativas em `src/environments/environment.ts` (`/api/identity`, `/api/tasks`, `/api/notifications`), resolvidas pelo proxy do `frontend/nginx.conf` para evitar CORS.
 - Build de produção em `frontend/dist/frontend/browser`; Dockerfile copia esse diretório e o `nginx.conf` para o container.
 
@@ -51,7 +52,7 @@ Projeto usa as skills abaixo:
 
 ### Endpoints Implementados
 - **service-identity**: `POST /register` (201), `POST /login` (200), `GET /health` (200/503). JWT obrigatório: `GET /me` (200), `PATCH /me` (200; altera `name`), `PUT /me/password` (204; 403 se a senha atual estiver incorreta).
-- **service-task** (JWT obrigatório): `GET /tasks`, `POST /tasks`, `GET /tasks/{id}`, `PUT /tasks/{id}`, `DELETE /tasks/{id}` (204), `PATCH /tasks/{id}/move` (200/409; reposiciona no quadro), `GET /health`.
+- **service-task** (JWT obrigatório): `GET /tasks` (filtros `status`, `priority`, `overdue`; `sort` = `position|priority|created_at|due_date`; `order`), `POST /tasks`, `GET /tasks/{id}`, `PUT /tasks/{id}` (substitui tudo, inclusive `priority`/`due_date`), `DELETE /tasks/{id}` (204), `PATCH /tasks/{id}/move` (200/409; reposiciona no quadro), `GET /tasks/{id}/history` (200/404; mais recentes primeiro), `GET /health`.
 - **service-notification**: `GET /health`; consumo assíncrono de `task.events` com Ack/Nack e DLQ.
 
 ### Observabilidade
@@ -90,6 +91,7 @@ Projeto usa as skills abaixo:
 | [0010](docs/adrs/0010-estrutura-e-arquitetura-de-projeto-angular.md) | Feature-first em `core/{guards,http,interceptors,models,services}`, `shared/components` e `features/*`.                      |
 | [0011](docs/adrs/0011-hardening-infraestrutura-local.md)             | Portas administrativas em loopback, segredos via `.env`, CSP/headers NGINX e containers non-root quando aplicável.      |
 | [0012](docs/adrs/0012-metricas-prometheus-e-dashboards-grafana.md)   | Scrape Prometheus, métricas de negócio, plugin RabbitMQ e três dashboards provisionados.                               |
+| [0013](docs/adrs/0013-prioridade-prazo-e-historico-de-tarefas.md)    | Prioridade e prazo nas tarefas; `task_history` gravado na mesma transação (`created`/`updated`/`moved`), sem reordenações. |
 
 ## Padrões de Código Go
 

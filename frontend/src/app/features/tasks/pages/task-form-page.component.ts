@@ -4,7 +4,17 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { apiErrorMessage } from '../../../core/http/http-error.utils';
-import { STATUS_META, STATUSES, TaskPayload, TaskStatus } from '../models/task.model';
+import {
+  DEFAULT_PRIORITY,
+  PRIORITIES,
+  PRIORITY_META,
+  STATUS_META,
+  STATUSES,
+  TaskPayload,
+  TaskPriority,
+  TaskStatus,
+} from '../models/task.model';
+import { todayISO } from '../task.utils';
 import { TaskDataService } from '../services/task-data.service';
 import { FormFieldComponent } from '../../../shared/components/form-field.component';
 
@@ -77,6 +87,44 @@ import { FormFieldComponent } from '../../../shared/components/form-field.compon
           </select>
         </div>
 
+        <div class="field">
+          <label class="field-label" for="task-priority">{{ isEdit() ? 'PRIORIDADE' : '04 / PRIORIDADE' }}</label>
+          <select
+            id="task-priority"
+            class="priority-select"
+            [class]="'priority-select ' + priority"
+            name="priority"
+            [(ngModel)]="priority"
+            (ngModelChange)="clearError()"
+          >
+            @for (option of priorities; track option) {
+              <option [value]="option">{{ priorityMeta(option).short }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="task-due-date">{{ isEdit() ? 'PRAZO' : '05 / PRAZO' }}</label>
+          <div class="due-row">
+            <input
+              id="task-due-date"
+              class="input due-input"
+              type="date"
+              name="dueDate"
+              [(ngModel)]="dueDate"
+              (ngModelChange)="clearError()"
+              [min]="today"
+              aria-describedby="task-due-date-error"
+            />
+            @if (dueDate) {
+              <button class="clear-due" type="button" (click)="clearDueDate()">REMOVER PRAZO</button>
+            }
+          </div>
+          @if (dueDateInvalid()) {
+            <span id="task-due-date-error" class="error">O prazo não pode estar no passado.</span>
+          }
+        </div>
+
         <div class="actions">
           <a class="btn btn-outline desktop-cancel" [routerLink]="cancelLink()">
             Cancelar <span class="arrow" aria-hidden="true">↗</span>
@@ -131,6 +179,35 @@ import { FormFieldComponent } from '../../../shared/components/form-field.compon
       .status-select.todo { background: var(--band-todo); }
       .status-select.doing { background: var(--band-doing); color: var(--text-doing); }
       .status-select.done { background: var(--band-done); color: var(--text-done); }
+      .priority-select {
+        justify-self: start;
+        min-height: 28px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        appearance: none;
+        background: transparent;
+        font-family: var(--font-body);
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      .priority-select.medium { color: var(--ink); }
+      .priority-select.high { color: var(--pine); border-color: var(--pine); }
+      .priority-select.urgent { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
+      .due-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+      .due-input { max-width: 220px; min-height: 48px; }
+      .clear-due {
+        border: 0;
+        background: none;
+        padding: 0;
+        font-size: 10px;
+        letter-spacing: 0.07em;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .clear-due:hover { color: var(--danger); }
       .note { margin-top: 38px; font-size: 11px; color: var(--muted); }
       .note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
       input.input { min-height: 66px; }
@@ -158,6 +235,8 @@ export class TaskFormPageComponent implements OnInit {
   private readonly router = inject(Router);
 
   readonly statuses = STATUSES;
+  readonly priorities = PRIORITIES;
+  readonly today = todayISO();
   readonly loading = signal(false);
   readonly submitted = signal(false);
   readonly error = signal('');
@@ -170,6 +249,10 @@ export class TaskFormPageComponent implements OnInit {
   title = '';
   description = '';
   statusValue: TaskStatus = 'todo';
+  priority: TaskPriority = DEFAULT_PRIORITY;
+  dueDate = '';
+  /** Prazo salvo; um prazo já vencido pode ser mantido na edição, mas não escolhido de novo. */
+  private originalDueDate: string | null = null;
 
   ngOnInit(): void {
     const raw = this.route.snapshot.paramMap.get('id');
@@ -188,6 +271,9 @@ export class TaskFormPageComponent implements OnInit {
         this.title = task.title;
         this.description = task.description;
         this.statusValue = task.status;
+        this.priority = task.priority ?? DEFAULT_PRIORITY;
+        this.dueDate = task.due_date ?? '';
+        this.originalDueDate = task.due_date;
         this.loading.set(false);
       },
       error: (err: HttpErrorResponse) => {
@@ -206,8 +292,21 @@ export class TaskFormPageComponent implements OnInit {
     return STATUS_META[status];
   }
 
+  priorityMeta(priority: TaskPriority) {
+    return PRIORITY_META[priority];
+  }
+
   clearError(): void {
     this.error.set('');
+  }
+
+  clearDueDate(): void {
+    this.dueDate = '';
+    this.clearError();
+  }
+
+  dueDateInvalid(): boolean {
+    return this.dueDate !== '' && this.dueDate < this.today && this.dueDate !== this.originalDueDate;
   }
 
   submit(form?: NgForm): void {
@@ -218,11 +317,17 @@ export class TaskFormPageComponent implements OnInit {
       this.error.set('Informe o título da tarefa.');
       return;
     }
+    if (this.dueDateInvalid()) {
+      this.error.set('O prazo não pode estar no passado.');
+      return;
+    }
 
     const payload: TaskPayload = {
       title,
       description: this.description.trim(),
       status: this.statusValue,
+      priority: this.priority,
+      due_date: this.dueDate || null,
     };
     this.error.set('');
     this.loading.set(true);
@@ -234,7 +339,9 @@ export class TaskFormPageComponent implements OnInit {
       next: (task) => void this.router.navigate(['/tasks', task.id]),
       error: (err: HttpErrorResponse) =>
         this.error.set(
-          apiErrorMessage(err, this.isEdit() ? 'Falha ao salvar alterações.' : 'Falha ao criar tarefa.'),
+          err.status === 400
+            ? 'Verifique o título, a prioridade e o prazo.'
+            : apiErrorMessage(err, this.isEdit() ? 'Falha ao salvar alterações.' : 'Falha ao criar tarefa.'),
         ),
     });
   }

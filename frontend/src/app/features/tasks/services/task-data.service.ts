@@ -2,11 +2,12 @@ import { inject, Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpParams, HttpResponse } from '@angular/common/http';
 import { EMPTY, expand, map, Observable, reduce } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { Task, TaskMovePayload, TaskPayload } from '../models/task.model';
+import { Task, TaskHistoryEntry, TaskMovePayload, TaskPayload } from '../models/task.model';
 
 @Injectable({ providedIn: 'root' })
 export class TaskDataService {
   private static readonly pageSize = 100;
+  static readonly historyPageSize = 20;
   private readonly http = inject(HttpClient);
   private readonly api = environment.taskUrl;
 
@@ -42,6 +43,15 @@ export class TaskDataService {
   move(id: number, payload: TaskMovePayload): Observable<Task> {
     return this.http
       .patch<Task>(`${this.api}/tasks/${id}/move`, payload, { observe: 'response' })
+      .pipe(map((response) => this.bodyForStatus(response, 200)));
+  }
+
+  history(id: number, offset = 0, limit = TaskDataService.historyPageSize): Observable<TaskHistoryEntry[]> {
+    return this.http
+      .get<TaskHistoryEntry[]>(`${this.api}/tasks/${id}/history`, {
+        observe: 'response',
+        params: new HttpParams().set('limit', limit).set('offset', offset),
+      })
       .pipe(map((response) => this.bodyForStatus(response, 200)));
   }
 

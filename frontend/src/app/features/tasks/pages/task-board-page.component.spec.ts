@@ -14,6 +14,8 @@ const base: Task = {
   title: 'Test',
   description: '',
   status: 'todo',
+  priority: 'medium',
+  due_date: null,
   position: 0,
   created_at: '',
   updated_at: '',

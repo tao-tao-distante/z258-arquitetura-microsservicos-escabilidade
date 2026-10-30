@@ -101,7 +101,31 @@ A ordem dos interceptors é `correlationIdInterceptor` e depois `jwtInterceptor`
 - `list()` busca páginas de 100 itens com `expand` até receber uma página menor;
 - `get`, `create`, `update` e `remove` validam o status esperado (`200`, `201`,
   `200`, `204`) e transformam status inesperado em `HttpErrorResponse`;
+- `history(id, offset, limit)` busca páginas de 20 entradas em `/tasks/{id}/history`;
 - corpo vazio em resposta que deveria ter corpo também vira erro.
+
+### Prioridade, prazo e histórico
+
+- **Formulário**:
+  - campo de prioridade (`URGENTE`, `ALTA`, `MÉDIA`, `BAIXA`; padrão `MÉDIA`);
+  - prazo em `<input type="date">`, com botão "remover prazo".
+  - Um prazo anterior à data local é bloqueado. Na edição, um prazo já vencido pode ser mantido, mas não trocado por outra
+    data passada.
+  - O `PUT` sempre envia `priority` e `due_date`.
+- **Badges**: `PriorityBadgeComponent` e `DueDateComponent` ("Vence hoje", "Vence em 3 dias", "Atrasada há 2 dias")
+  aparecem na lista, no quadro e no detalhe. Tarefas concluídas nunca aparecem como atrasadas.
+- **Lista** (`/tasks`):
+  - colunas de prioridade, prazo e data de criação;
+  - filtro por prioridade, botão "Atrasadas" e ordenação por quadro, prioridade, mais recentes ou prazo mais próximo.
+  - Filtros e ordenação rodam no cliente sobre a lista completa e ficam na URL
+    (`?status=&priority=&overdue=true&sort=`).
+- **Detalhe** (`/tasks/:id`):
+  - mostra prioridade, prazo e data de criação;
+  - mostra a linha do tempo `TaskHistoryComponent` ("Criada", "Editada", "Movida", com cada mudança em texto, como
+    "Prioridade: Média → Alta");
+  - o histórico tem carregamento, erro e paginação ("Carregar mais") próprios, e uma falha nele não afeta a página.
+- **Datas**: a formatação e as regras de prazo ficam em `features/tasks/task.utils.ts`, como funções puras.
+  - Datas de calendário são formatadas sem `Date`, para não deslocar o dia pelo fuso.
 
 ## Ambientes e proxy
 

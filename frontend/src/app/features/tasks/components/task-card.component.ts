@@ -1,14 +1,20 @@
 import { Component, computed, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { STATUS_META, STATUSES, Task, TaskFeedback, TaskStatus } from '../models/task.model';
+import { DueDateComponent } from './due-date.component';
+import { PriorityBadgeComponent } from './priority-badge.component';
 
 @Component({
   selector: 'app-task-card',
-  imports: [RouterLink],
+  imports: [RouterLink, PriorityBadgeComponent, DueDateComponent],
   template: `
     <article class="task" [class.saved]="feedback() === 'saved'" [class.failed]="feedback() === 'failed'">
       <h3>{{ task().title }}</h3>
       <p class="meta">Tarefa #{{ task().id.toString().padStart(3, '0') }}</p>
+      <div class="tags">
+        <app-priority-badge [priority]="task().priority" />
+        <app-due-date [task]="task()" />
+      </div>
       <hr />
       <div class="actions">
         <a class="link-arrow" [routerLink]="['/tasks', task().id]">
@@ -48,6 +54,7 @@ import { STATUS_META, STATUSES, Task, TaskFeedback, TaskStatus } from '../models
       .task.failed { animation: failed-shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97); border-color: var(--danger); }
       h3 { font-size: 17px; line-height: 1.25; }
       .meta { font-size: 12px; color: var(--muted); }
+      .tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
       hr { border: 0; height: 1px; background: var(--line); margin: 2px 0; }
       .actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .link-arrow { font-size: 10px; letter-spacing: 0.06em; }

@@ -148,6 +148,24 @@ func TestRunProtectsProfileRoutesWithJWT(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
+func TestRunRecordsRoutePatternInHTTPMetrics(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectPing()
+	expectMigration(mock)
+	mock.ExpectClose()
+	scrape := httptest.NewRecorder()
+	deps := Deps{
+		OpenDB: func(string) (*sql.DB, error) { return db, nil },
+		Serve: func(srv *http.Server) error {
+			srv.Handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/me", nil))
+			srv.Handler.ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+			return http.ErrServerClosed
+		},
+	}
+	require.NoError(t, Run(context.Background(), config.Config{JWTSecret: "secret"}, slog.Default(), deps))
+	require.Contains(t, scrape.Body.String(), `route="GET /me"`)
+}
+
 func TestShutdownRunningServer(t *testing.T) {
 	srv := NewServer("0", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	rec := httptest.NewRecorder()

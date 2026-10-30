@@ -2,6 +2,7 @@
 package metrics
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -63,14 +64,29 @@ func (s *Set) Middleware(next http.Handler) http.Handler {
 		}
 		start := time.Now()
 		recorder := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
+		route := new(string)
+		r = r.WithContext(context.WithValue(r.Context(), routeKey{}, route))
 		next.ServeHTTP(recorder, r)
-		route := r.Pattern
-		if route == "" {
-			route = "unmatched"
+		if *route == "" {
+			*route = r.Pattern
 		}
-		labels := []string{s.service, r.Method, route, strconv.Itoa(recorder.status)}
+		if *route == "" {
+			*route = "unmatched"
+		}
+		labels := []string{s.service, r.Method, *route, strconv.Itoa(recorder.status)}
 		s.requests.WithLabelValues(labels...).Inc()
 		s.duration.WithLabelValues(labels...).Observe(time.Since(start).Seconds())
+	})
+}
+
+type routeKey struct{}
+
+func RoutePattern(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+		if route, ok := r.Context().Value(routeKey{}).(*string); ok && r.Pattern != "" {
+			*route = r.Pattern
+		}
 	})
 }
 

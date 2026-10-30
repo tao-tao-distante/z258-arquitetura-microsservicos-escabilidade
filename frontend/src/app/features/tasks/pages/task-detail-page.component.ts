@@ -3,14 +3,25 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { apiErrorMessage } from '../../../core/http/http-error.utils';
+import { DueDateComponent } from '../components/due-date.component';
+import { PriorityBadgeComponent } from '../components/priority-badge.component';
 import { StatusBadgeComponent } from '../components/status-badge.component';
+import { TaskHistoryComponent } from '../components/task-history.component';
 import { STATUS_META, Task, TaskStatus } from '../models/task.model';
+import { formatDate, formatDateTime } from '../task.utils';
 import { TaskDataService } from '../services/task-data.service';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog.component';
 
 @Component({
   selector: 'app-task-detail-page',
-  imports: [RouterLink, StatusBadgeComponent, ConfirmDialogComponent],
+  imports: [
+    RouterLink,
+    StatusBadgeComponent,
+    PriorityBadgeComponent,
+    DueDateComponent,
+    TaskHistoryComponent,
+    ConfirmDialogComponent,
+  ],
   template: `
     <section class="page" animate.enter="page-enter">
       <a class="link-arrow back" routerLink="/tasks">← VOLTAR ÀS TAREFAS</a>
@@ -46,10 +57,33 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
             <dd>{{ meta(current.status).label }}</dd>
           </div>
           <div>
+            <dt>PRIORIDADE</dt>
+            <dd><app-priority-badge [priority]="current.priority" /></dd>
+          </div>
+          <div>
+            <dt>PRAZO</dt>
+            <dd class="due">
+              @if (current.due_date) {
+                <span>{{ date(current.due_date) }}</span>
+                <app-due-date [task]="current" />
+              } @else {
+                <span class="muted">Sem prazo</span>
+              }
+            </dd>
+          </div>
+          <div>
+            <dt>CRIADA EM</dt>
+            <dd>{{ dateTime(current.created_at) }}</dd>
+          </div>
+          <div>
             <dt>IDENTIFICADOR</dt>
             <dd>#{{ current.id }}</dd>
           </div>
         </dl>
+
+        <hr class="rule history-rule" />
+
+        <app-task-history [taskId]="current.id" />
 
         <div class="actions">
           <a class="btn btn-primary" [routerLink]="['/tasks', current.id, 'edit']">
@@ -101,7 +135,9 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
       .description { display: grid; gap: 18px; margin-bottom: 63px; }
       .description p { font-size: 19px; line-height: 1.32; max-width: 62ch; white-space: pre-wrap; }
       .description + .rule { margin-bottom: 31px; }
-      .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin: 0; }
+      .meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 24px; margin: 0; }
+      dd.due { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+      .history-rule { margin: 52px 0 31px; }
       dt { font-size: 10px; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 10px; }
       dd { margin: 0; font-size: 16px; color: var(--ink); }
       .actions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 92px; }
@@ -146,6 +182,14 @@ export class TaskDetailPageComponent implements OnInit {
 
   meta(status: TaskStatus) {
     return STATUS_META[status];
+  }
+
+  date(iso: string): string {
+    return formatDate(iso);
+  }
+
+  dateTime(iso: string): string {
+    return formatDateTime(iso);
   }
 
   remove(): void {

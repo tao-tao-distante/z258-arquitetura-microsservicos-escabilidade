@@ -15,25 +15,42 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/domain"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/auth"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/metrics"
 )
 
-type fakeService struct {
-	task         *domain.Task
-	tasks        []domain.Task
-	err          error
-	limit        int
-	offset       int
-	createStatus string
-	move         domain.Move
+func TestRoutesExposeRoutePatternToMetricsBehindRequestCopies(t *testing.T) {
+	set := metrics.New("service-task")
+	routes := New(&fakeService{}, nil).Routes("secret")
+	copyRequest := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routes.ServeHTTP(w, r.WithContext(r.Context()))
+	})
+	set.Middleware(copyRequest).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/tasks/7", nil))
+
+	scrape := httptest.NewRecorder()
+	set.Handler().ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	require.Contains(t, scrape.Body.String(), `route="GET /tasks/{id}"`)
 }
 
-func (f *fakeService) Create(ctx context.Context, userID int64, title, description, status string) (*domain.Task, error) {
-	f.createStatus = status
+type fakeService struct {
+	task    *domain.Task
+	tasks   []domain.Task
+	history []domain.HistoryEntry
+	err     error
+	limit   int
+	offset  int
+	query   domain.ListQuery
+	input   domain.TaskInput
+	move    domain.Move
+}
+
+func (f *fakeService) Create(ctx context.Context, userID int64, in domain.TaskInput) (*domain.Task, error) {
+	f.input = in
 	return f.task, f.err
 }
 
-func (f *fakeService) List(ctx context.Context, userID int64, limit, offset int) ([]domain.Task, error) {
-	f.limit, f.offset = limit, offset
+func (f *fakeService) List(ctx context.Context, q domain.ListQuery) ([]domain.Task, error) {
+	f.query = q
+	f.limit, f.offset = q.Limit, q.Offset
 	return f.tasks, f.err
 }
 
@@ -41,7 +58,8 @@ func (f *fakeService) Get(ctx context.Context, id, userID int64) (*domain.Task, 
 	return f.task, f.err
 }
 
-func (f *fakeService) Update(ctx context.Context, id, userID int64, title, description, status string) (*domain.Task, error) {
+func (f *fakeService) Update(ctx context.Context, id, userID int64, in domain.TaskInput) (*domain.Task, error) {
+	f.input = in
 	return f.task, f.err
 }
 
@@ -52,6 +70,11 @@ func (f *fakeService) Delete(ctx context.Context, id, userID int64) error {
 func (f *fakeService) Move(ctx context.Context, move domain.Move) (*domain.Task, error) {
 	f.move = move
 	return f.task, f.err
+}
+
+func (f *fakeService) History(ctx context.Context, id, userID int64, limit, offset int) ([]domain.HistoryEntry, error) {
+	f.limit, f.offset = limit, offset
+	return f.history, f.err
 }
 
 func token(t *testing.T, secret string) string {
@@ -136,7 +159,7 @@ func TestCreatePassesStatus(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.Create(rec, httptest.NewRequest(http.MethodPost, "/tasks", body).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusCreated, rec.Code)
-	require.Equal(t, "doing", svc.createStatus)
+	require.Equal(t, "doing", svc.input.Status)
 }
 
 func TestCreateInvalidJSON(t *testing.T) {
@@ -270,6 +293,7 @@ func TestOperationsUnauthorized(t *testing.T) {
 		{"update", h.Update, httptest.NewRequest(http.MethodPut, "/tasks/1", bytes.NewBufferString("{}"))},
 		{"delete", h.Delete, httptest.NewRequest(http.MethodDelete, "/tasks/1", nil)},
 		{"move", h.Move, httptest.NewRequest(http.MethodPatch, "/tasks/1/move", bytes.NewBufferString("{}"))},
+		{"history", h.History, httptest.NewRequest(http.MethodGet, "/tasks/1/history", nil)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

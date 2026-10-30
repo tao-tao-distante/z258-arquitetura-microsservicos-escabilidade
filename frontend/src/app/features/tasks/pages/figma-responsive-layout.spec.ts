@@ -14,6 +14,8 @@ const tasks: Task[] = [
     title: 'Preparar release',
     description: 'Revisar checklist',
     status: 'doing',
+    priority: 'medium',
+    due_date: null,
     position: 0,
     created_at: '',
     updated_at: '',
