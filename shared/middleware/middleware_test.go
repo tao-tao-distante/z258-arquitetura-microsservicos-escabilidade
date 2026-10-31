@@ -3,15 +3,21 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestCorrelation(t *testing.T) {
@@ -66,6 +72,22 @@ func TestCorrelation(t *testing.T) {
 	}
 }
 
+func TestCorrelationAddsIDToActiveSpan(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	ctx, span := provider.Tracer("test").Start(context.Background(), "request")
+	h := Correlation(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	req.Header.Set(HeaderCorrelationID, "646a4ca0-94d8-4f4a-b0f0-31fb0ac7b31d")
+
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	span.End()
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	require.Contains(t, spans[0].Attributes, attribute.String("correlation_id", req.Header.Get(HeaderCorrelationID)))
+}
+
 func TestLoggingEmitsFields(t *testing.T) {
 	var buf bytes.Buffer
 	l := slog.New(slog.NewJSONHandler(&buf, nil))
@@ -82,6 +104,101 @@ func TestLoggingEmitsFields(t *testing.T) {
 	require.Contains(t, out, `"status_code":201`)
 	require.Contains(t, out, `"latency_ms"`)
 	require.Contains(t, out, `"correlation_id":"cid"`)
+}
+
+func TestLoggingSanitizesJSONBodyWithoutConsumingIt(t *testing.T) {
+	var logs bytes.Buffer
+	l := slog.New(slog.NewJSONHandler(&logs, nil))
+	body := `{"email":"person@example.com","password":"secret","name":"Person","title":"Private title","description":"Private description","status":"doing","priority":"urgent","due_date":"2026-11-01","before_id":12,"unknown":"private"}`
+	var handledBody string
+	h := Logging(l)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		payload, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		handledBody = string(payload)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	require.Equal(t, body, handledBody)
+	entry := decodeLogEntry(t, &logs)
+	sanitized := entry["request_body"].(map[string]any)
+	require.Equal(t, "[REDACTED]", sanitized["email"])
+	require.Equal(t, "[REDACTED]", sanitized["password"])
+	require.Equal(t, "[REDACTED]", sanitized["name"])
+	require.Equal(t, "[REDACTED]", sanitized["title"])
+	require.Equal(t, "[REDACTED]", sanitized["description"])
+	require.Equal(t, "[REDACTED]", sanitized["unknown"])
+	require.Equal(t, "doing", sanitized["status"])
+	require.Equal(t, "urgent", sanitized["priority"])
+	require.Equal(t, "2026-11-01", sanitized["due_date"])
+	require.Equal(t, float64(12), sanitized["before_id"])
+	require.Equal(t, float64(len(body)), entry["request_body_bytes"])
+	require.Equal(t, false, entry["request_body_truncated"])
+	require.Equal(t, true, entry["request_body_valid_json"])
+	require.NotContains(t, logs.String(), "person@example.com")
+	require.NotContains(t, logs.String(), "Private title")
+}
+
+func TestLoggingDoesNotExposeInvalidJSON(t *testing.T) {
+	var logs bytes.Buffer
+	l := slog.New(slog.NewJSONHandler(&logs, nil))
+	body := `{"password":"must-not-leak"`
+	h := Logging(l)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	entry := decodeLogEntry(t, &logs)
+	require.Equal(t, false, entry["request_body_valid_json"])
+	require.NotContains(t, entry, "request_body")
+	require.NotContains(t, logs.String(), "must-not-leak")
+}
+
+func TestLoggingDoesNotExposeTruncatedJSON(t *testing.T) {
+	var logs bytes.Buffer
+	l := slog.New(slog.NewJSONHandler(&logs, nil))
+	body := `{"description":"` + strings.Repeat("private", 10_000) + `"}`
+	h := Logging(l)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+	}))
+	req := httptest.NewRequest(http.MethodPut, "/tasks/1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	entry := decodeLogEntry(t, &logs)
+	require.Equal(t, true, entry["request_body_truncated"])
+	require.NotContains(t, entry, "request_body")
+	require.NotContains(t, logs.String(), strings.Repeat("private", 20))
+}
+
+func TestLoggingRecordsOnlyMetadataForNonJSONBody(t *testing.T) {
+	var logs bytes.Buffer
+	l := slog.New(slog.NewJSONHandler(&logs, nil))
+	h := Logging(l)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("must-not-leak"))
+	req.Header.Set("Content-Type", "text/plain")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	entry := decodeLogEntry(t, &logs)
+	require.Equal(t, float64(len("must-not-leak")), entry["request_body_bytes"])
+	require.NotContains(t, entry, "request_body")
+	require.NotContains(t, logs.String(), "must-not-leak")
+}
+
+func decodeLogEntry(t *testing.T, logs *bytes.Buffer) map[string]any {
+	t.Helper()
+	entry := map[string]any{}
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &entry))
+	return entry
 }
 
 func TestStatusRecorderDefault(t *testing.T) {

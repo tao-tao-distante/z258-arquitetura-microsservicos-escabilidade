@@ -10,18 +10,19 @@ O sistema contém uma SPA Angular servida por NGINX e três serviços Go:
 - `service-notification`: consumo AMQP e registro do evento recebido.
 
 RabbitMQ desacopla criação de tarefas do consumidor. OpenTelemetry Collector, Tempo, Prometheus e Grafana formam a stack
-local de telemetria. O frontend inicia spans `CLIENT` e exporta OTLP/HTTP pelo NGINX em `/otlp/v1/traces`. Os três
-serviços exportam traces OTLP/gRPC para `http://otel-collector:4317` (definido no Compose via
-`OTEL_EXPORTER_OTLP_ENDPOINT`); sem essa variável, traces são desativados e o serviço inicia normalmente. Métricas
+local de telemetria. O módulo OpenTelemetry do NGINX inicia o span de entrada e injeta W3C Trace Context nas requisições
+encaminhadas. O NGINX exporta para `otel-collector:4317`; os três serviços usam `http://otel-collector:4317`, definido no
+Compose via `OTEL_EXPORTER_OTLP_ENDPOINT`. Sem essa variável, traces dos serviços são desativados e o serviço inicia
+normalmente. Métricas
 Prometheus continuam disponíveis diretamente em `/metrics`.
 
 ## Fluxos
 
 ### HTTP
 
-O frontend é a entrada da aplicação em `:8081`. O NGINX encaminha `/api/identity`, `/api/tasks` e
-`/api/notifications` aos serviços pela rede `edge`. As portas diretas `8082`, `8083` e `8084` existem para diagnóstico
-local e aceitam conexões somente em `127.0.0.1`.
+O frontend é a entrada da aplicação em `:8081`. O NGINX cria o trace na borda e balanceia `/api/identity`, `/api/tasks` e
+`/api/notifications` com `least_conn` e resolução DNS dinâmica na rede `edge`. APIs não publicam portas no host; isso
+permite escalar réplicas pelo Compose sem conflito de bind.
 
 ### Eventos
 
@@ -52,13 +53,13 @@ A descrição registra apenas que mudou. Reordenar dentro da mesma coluna não g
 
 `x-correlation-id` é um ID de aplicação:
 
-- o frontend gera UUID v4;
-- middlewares Go aceitam apenas UUIDs v4 válidos, geram um novo quando ausente ou inválido e o incluem na resposta e nos logs JSON;
+- middlewares Go aceitam apenas UUIDs v4 válidos, geram um novo na entrada da API quando ausente ou inválido e o incluem na resposta e nos logs JSON;
 - o publicador o inclui no header AMQP e o consumidor o extrai.
 
-`x-correlation-id` é um identificador de aplicação e continua separado do W3C Trace Context. A instrumentação
-OpenTelemetry propaga `traceparent`/`tracestate` em HTTP e nos headers AMQP, criando spans para requisições HTTP,
-publicação, dispatch do outbox e consumo. Os logs continuam indexados por `correlation_id`, não por `trace_id`.
+`x-correlation-id` é um identificador de aplicação e continua separado do W3C Trace Context. O NGINX gera `traceparent`
+na borda. OpenTelemetry o propaga em HTTP, persiste o carrier no outbox e o injeta nos headers
+AMQP, criando spans para NGINX, requisições HTTP, dispatch, publicação e consumo. Os logs JSON incluem `correlation_id`,
+`trace_id` e `span_id` quando disponíveis, além de `service_name`; os identificadores são campos puros, não prefixos.
 
 ## Observabilidade
 
@@ -71,8 +72,17 @@ O Collector aceita OTLP/gRPC em `0.0.0.0:4317` e OTLP/HTTP em `0.0.0.0:4318` den
 - métricas do broker: plugin `rabbitmq_prometheus` em `rabbitmq:15692/metrics` -> Prometheus.
 
 Tempo 3.1.1 roda em modo monolítico (`target=all`), recebe OTLP em binds explícitos, grava WAL/blocos em `/var/tempo`,
-usa backend local e retenção de 24 horas. Prometheus mantém TSDB por 7 dias. Grafana recebe datasources provisionados
-para ambos. Loki não está implantado; logs são lidos com `docker compose logs`.
+usa backend local e retenção de 24 horas. Prometheus mantém TSDB por 7 dias. Loki 3.6.7 roda em modo monolítico com
+schema TSDB v13, backend `filesystem` e retenção de 7 dias, sem porta publicada. O Alloy lê os arquivos `*-json.log`
+do diretório `containers` do Docker (`DOCKER_ROOT_DIR`), desembrulha o JSON do driver com `stage.docker` e envia ao Loki. Os labels são apenas
+`service_name`, `level` e `container`; IDs permanecem no corpo e são consultados com `| json`. Grafana recebe datasources
+provisionados para Prometheus, Tempo e Loki, com links Loki→Tempo (`derivedFields`) e Tempo→Loki (`tracesToLogsV2`).
+
+Bodies HTTP entram nos logs de forma sanitizada: até 64 KiB, somente JSON completo e válido, com campos operacionais
+permitidos (`status`, `priority`, `due_date`, `before_id`, `after_id`) e todo o restante como `[REDACTED]`. Corpo
+inválido, truncado ou não JSON gera apenas tamanho e flags. O NGINX registra access log JSON sem query string, headers
+de autenticação ou body e devolve `X-Trace-ID` nas respostas de `/api/*`. Decisão em
+[ADR-0015](adrs/0015-logs-contextuais-loki-alloy.md).
 
 Os serviços usam `otelhttp` no servidor HTTP e spans manuais na publicação/consumo AMQP e no dispatch do outbox, portanto
 traces aparecem no Tempo/Grafana. `prometheus/client_golang` expõe runtime Go, processo, taxa/status/latência HTTP e os
@@ -97,13 +107,13 @@ Os objetivos abaixo valem para a stack Compose com uma réplica por serviço e s
 (`:8081`), que é o caminho real do usuário. Cada SLI usa uma janela de 30 dias; no ambiente local, o teste de carga é a
 evidência de aderência.
 
-| SLI                              | SLO                                    | Fonte de medição                                                                 |
-|----------------------------------|----------------------------------------|----------------------------------------------------------------------------------|
-| Latência de `GET /tasks`         | p95 < 200 ms e p99 < 500 ms            | k6 (`loadtest/tasks.js`) e `task_manager_http_request_duration_seconds`         |
-| Latência de `POST /tasks`        | p95 < 300 ms                           | k6 (`loadtest/tasks.js`) e `task_manager_http_request_duration_seconds`         |
-| Taxa de erro HTTP                | < 1% de respostas 5xx ou falhas de rede | k6 (`http_req_failed`) e `task_manager_http_requests_total` por `status`        |
-| Entrega do evento `task.created` | 99,9% publicados em até 5 s            | `sent_at - created_at` em `task_outbox` e `task_manager_task_outbox_events_total` |
-| Disponibilidade das APIs         | 99,5%                                  | `GET /health` dos serviços e alvo `up` no Prometheus                             |
+| SLI                              | SLO                                     | Fonte de medição                                                                  |
+|----------------------------------|-----------------------------------------|-----------------------------------------------------------------------------------|
+| Latência de `GET /tasks`         | p95 < 200 ms e p99 < 500 ms             | k6 (`loadtest/tasks.js`) e `task_manager_http_request_duration_seconds`           |
+| Latência de `POST /tasks`        | p95 < 300 ms                            | k6 (`loadtest/tasks.js`) e `task_manager_http_request_duration_seconds`           |
+| Taxa de erro HTTP                | < 1% de respostas 5xx ou falhas de rede | k6 (`http_req_failed`) e `task_manager_http_requests_total` por `status`          |
+| Entrega do evento `task.created` | 99,9% publicados em até 5 s             | `sent_at - created_at` em `task_outbox` e `task_manager_task_outbox_events_total` |
+| Disponibilidade das APIs         | 99,5%                                   | `GET /health` dos serviços e alvo `up` no Prometheus                              |
 
 A latência de criação é mais alta que a de leitura porque a escrita grava tarefa, histórico e outbox na mesma transação.
 O SLO de entrega mede a consistência eventual do outbox: o dispatcher varre pendentes a cada 500 ms e, em falha, aplica
@@ -158,7 +168,7 @@ manager, TLS, backend de objetos para Tempo, autenticação dos endpoints de tel
 
 ## Persistência e ciclo de vida
 
-Volumes nomeados preservam PostgreSQL, RabbitMQ, Tempo, Prometheus e Grafana. Todos os serviços usam
+Volumes nomeados preservam PostgreSQL, RabbitMQ, Tempo, Prometheus, Grafana, Loki e Alloy. Todos os serviços usam
 `restart: unless-stopped`. Dependências críticas usam healthchecks e `depends_on.condition: service_healthy`. `down`
 preserva os volumes; `down -v` os apaga.
 
@@ -171,7 +181,9 @@ preserva os volumes; `down -v` os apaga.
   com 10 criações/s, a fila acumulou 1.642 eventos pendentes e o p95 de entrega chegou a 264,7 s, violando o SLO de
   5 s. Nenhum evento se perde, mas a consistência eventual passa a ser de minutos; drenar o outbox em lote a cada tick
   ou rodar mais réplicas do dispatcher (o `SKIP LOCKED` permite) resolve o gargalo.
-- Logs não são centralizados e não incluem `trace_id`/`span_id`.
+- Loki com `filesystem` não é HA e o Alloy exige leitura do diretório de containers do Docker. Em produção, trocar por
+  object storage e coleta compatível com o orquestrador; o bind concede leitura de logs de todos os containers do host.
+- `level` é label de baixa cardinalidade; linhas que não sejam JSON da aplicação recebem `level="unknown"`.
 - Não há Alertmanager nem alertas de burn rate dos SLOs; dashboards não substituem alertas operacionais.
 - Os Dockerfiles usam usuário não-root e builds sem fallback silencioso; o pin por digest das imagens-base ainda não é
   aplicado (tags de versão são usadas).
@@ -179,4 +191,5 @@ preserva os volumes; `down -v` os apaga.
 ## ADRs
 
 Decisões ficam em [`docs/adrs`](adrs/). ADR-0002 separa correlação de aplicação de W3C Trace Context; ADR-0003 descreve
-semântica real da DLQ; ADR-0011 registra hardening e segmentação; ADR-0012 define métricas e dashboards.
+semântica real da DLQ; ADR-0011 registra hardening e segmentação; ADR-0012 define métricas e dashboards; ADR-0014 cobre
+tracing na borda; ADR-0015 define logs contextuais, sanitização e a stack Loki/Alloy.

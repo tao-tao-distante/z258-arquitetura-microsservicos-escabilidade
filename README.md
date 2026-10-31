@@ -40,9 +40,8 @@ RabbitMQ :15692 --------> Prometheus -> Grafana
 OTLP -> OpenTelemetry Collector -> Tempo ----/
 ```
 
-O NGINX é a entrada pública da aplicação em `0.0.0.0:8081`. APIs diretas, Grafana e RabbitMQ Management são portas
-de desenvolvimento/administração vinculadas a `127.0.0.1`. Bancos, AMQP, OTLP, Tempo e Prometheus não publicam portas
-no host.
+O NGINX é a única entrada das APIs em `0.0.0.0:8081`. Grafana e RabbitMQ Management são portas administrativas
+vinculadas a `127.0.0.1`. APIs, bancos, AMQP, OTLP, Tempo e Prometheus não publicam portas no host.
 
 ## Setup
 
@@ -69,9 +68,9 @@ O Compose falha imediatamente se uma variável obrigatória estiver ausente. O u
 | Componente | URL local | Exposição |
 |---|---|---|
 | Frontend | http://localhost:8081 | todas as interfaces |
-| service-identity | http://localhost:8082 | somente loopback |
-| service-task | http://localhost:8083 | somente loopback |
-| service-notification | http://localhost:8084 | somente loopback |
+| service-identity | http://localhost:8081/api/identity | via NGINX |
+| service-task | http://localhost:8081/api/tasks | via NGINX |
+| service-notification | http://localhost:8081/api/notifications | via NGINX |
 | Grafana | http://localhost:3000 | somente loopback |
 | RabbitMQ Management | http://localhost:15672 | somente loopback |
 
@@ -126,8 +125,8 @@ Corpo de tarefa: `{"title":"...","description":"...","status":"todo|doing|done"}
 
 ### Frontend
 
-A SPA Angular consome as APIs por URLs relativas (`/api/identity`, `/api/tasks`, `/api/notifications`) e o NGINX faz
-proxy para os serviços. Rotas protegidas por `authGuard`:
+A SPA Angular consome as APIs por URLs relativas (`/api/identity`, `/api/tasks`, `/api/notifications`). O NGINX cria o
+trace de entrada e balanceia as requisições entre os serviços com `least_conn`. Rotas protegidas por `authGuard`:
 
 | Rota | Tela |
 |---|---|
@@ -167,14 +166,30 @@ notificação externa implementada.
 ## Correlação e telemetria
 
 - `x-correlation-id` é um identificador de aplicação para logs e eventos, não um header W3C Trace Context.
-- O frontend gera UUID v4; os serviços aceitam apenas UUIDs v4 válidos, devolvem o header, armazenam o valor no
-  `context.Context` e registram `correlation_id` nos logs JSON. Header ausente ou inválido é substituído por UUID v4.
+- Os serviços aceitam apenas UUIDs v4 válidos, devolvem o header, armazenam o valor no `context.Context` e registram
+  `correlation_id` nos logs JSON. Header ausente ou inválido é substituído por UUID v4.
 - O `service-task` copia `x-correlation-id` para o header AMQP e o consumidor o extrai.
-- W3C Trace Context (`traceparent`/`tracestate`) é propagado via `otelhttp`; spans são exportados por OTLP/gRPC quando
+- O módulo OpenTelemetry do NGINX cria o trace na borda e injeta W3C Trace Context. `otelhttp`, outbox e headers AMQP
+  preservam a árvore até o span `CONSUMER`. Spans são exportados por OTLP/gRPC quando
   `OTEL_EXPORTER_OTLP_ENDPOINT` está definido. Sem o endpoint, a exportação fica desabilitada e a aplicação segue com
   propagação e provider no-op.
 - Traces seguem por OTLP/Collector para Tempo. Métricas são coletadas pelo Prometheus nos endpoints internos `/metrics`.
-- Loki não faz parte desta stack; logs permanecem no `stdout` dos containers.
+- Logs JSON incluem `service_name`, `correlation_id`, `trace_id` e `span_id` quando disponíveis. O Alloy coleta
+  `stdout`/`stderr` dos containers e envia ao Loki, retido por 7 dias; labels são apenas `service_name`, `level` e
+  `container`.
+- No Grafana, um log de `/api/*` abre o trace correspondente e um trace abre os logs via `trace_id`.
+- Bodies HTTP são registrados sanitizados: até 64 KiB, somente JSON completo e válido; apenas `status`, `priority`,
+  `due_date`, `before_id` e `after_id` mantêm o valor, o restante vira `[REDACTED]`. As respostas de `/api/*` incluem
+  `X-Trace-ID`; o NGINX não registra query string, headers de autenticação nem body.
+
+Consultas úteis no Grafana Explore (datasource Loki):
+
+```logql
+{service_name="service-task"} | json | trace_id="<trace-id>"
+{service_name="service-notification"} | json | correlation_id="<correlation-id>"
+{service_name="frontend-edge"} | json | status >= 500
+{service_name=~"service-.*"} | json | request_body_valid_json="false"
+```
 
 ### Métricas de negócio
 

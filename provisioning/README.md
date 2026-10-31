@@ -8,8 +8,11 @@ de aplicação: são arquivos montados como volume somente-leitura nos container
   e RabbitMQ Management (`127.0.0.1:15672`).
 - Os serviços Go enviam traces para `otel-collector:4317`; o Prometheus coleta
   métricas diretamente de cada `/metrics`.
-- Os dados persistem nos volumes `tempo-data`, `prometheus-data`, `grafana-data` e
-  `rabbitmq-data`.
+- Os serviços Go enviam traces para `otel-collector:4317`; o Alloy lê os arquivos
+  `*-json.log` do diretório de containers do Docker e os envia ao Loki. Em Docker
+  rootless, defina `DOCKER_ROOT_DIR` no `.env` (por exemplo `$HOME/.local/share/docker`).
+- Os dados persistem nos volumes `tempo-data`, `prometheus-data`, `grafana-data`,
+  `loki-data`, `alloy-data` e `rabbitmq-data`.
 
 ## Estrutura
 
@@ -17,9 +20,11 @@ de aplicação: são arquivos montados como volume somente-leitura nos container
 provisioning
 ├── otel-collector/config.yaml          recebe OTLP e exporta para Tempo/Prometheus
 ├── tempo/tempo.yaml                    backend de traces (local + WAL)
+├── loki/loki.yaml                      backend de logs (TSDB v13 + filesystem, 7 dias)
+├── alloy/config.alloy                  coleta Docker e envia logs ao Loki
 ├── prometheus/prometheus.yml           scrape dos serviços, collector e RabbitMQ
 ├── grafana
-│   ├── datasources/datasources.yml     Prometheus (default) e Tempo
+│   ├── datasources/datasources.yml     Prometheus (default), Tempo e Loki com correlação
 │   ├── dashboards/providers.yml        provider de dashboards por arquivo
 │   ├── dashboard-definitions/*.json    três dashboards versionados
 │   ├── alerting/default.yml            provisionamento de alertas (vazio)
@@ -40,13 +45,17 @@ service-* /metrics <---------------- prometheus scrape
 rabbitmq :15692 <-------------------- prometheus scrape
 prometheus :9090 <------------------- grafana datasource
 tempo :3200 <------------------------ grafana datasource
+loki :3100 <------------------------- grafana datasource
+docker stdout/stderr --Alloy-------> loki :3100
 ```
 
 - Métricas de aplicação são expostas em `/metrics` e coletadas a cada 15 s.
 - Traces são exportados por OTLP/gRPC; o collector aplica limite de memória e
   batching antes de gravar no Tempo.
-- O datasource Tempo está provisionado no Grafana, mas os dashboards atuais usam
-  apenas Prometheus. Traces são consultados em Explore.
+- O Alloy descobre os arquivos `*-json.log` no data root do Docker, desembrulha o
+  JSON do driver com `stage.docker` e envia as linhas ao Loki.
+- Loki extrai `trace_id` como campo derivado que abre o Tempo; o datasource Tempo
+  consulta o Loki por `trace_id` e `service_name`. Ambos são consultados em Explore.
 
 ## otel-collector
 
@@ -73,6 +82,31 @@ configuração em vez de consultar o endpoint de saúde.
 - Retenção de blocos de `24h` na compactação.
 - `usage_report` desabilitado.
 
+## loki
+
+`loki/loki.yaml`:
+
+- Modo monolítico, HTTP em `:3100` e gRPC em `:9096`, sem porta publicada.
+- `auth_enabled: false` restrito à rede interna `telemetry`.
+- Schema TSDB `v13`, store `tsdb`, object store `filesystem` em `/loki`.
+- Retenção de `168h` (7 dias) com compactor habilitado e `delete_request_store: filesystem`.
+- `allow_structured_metadata` e `volume_enabled` habilitados.
+
+## alloy
+
+`alloy/config.alloy`:
+
+- `local.file_match` descobre `/var/lib/docker/containers/*/*-json.log` e
+  `discovery.relabel` deriva o label `container` do caminho.
+- `loki.source.file` lê os arquivos descobertos; `loki.process` usa
+  `stage.docker` para desembrulhar o driver, `stage.json` para extrair
+  `service_name` e `level`, e `stage.labels` para publicá-los como labels.
+  Linhas não JSON recebem `level="unknown"` e `service_name="unknown"`.
+- `loki.write` envia para `http://loki:3100/loki/api/v1/push`.
+- O diretório `containers` do Docker é montado como somente-leitura e o Alloy fica
+  apenas na rede interna `telemetry`. O volume `alloy-data` guarda as posições de
+  leitura.
+
 ## prometheus
 
 `prometheus/prometheus.yml` usa intervalo de scrape e avaliação de `15 s` e coleta:
@@ -94,7 +128,10 @@ O container roda com `--storage.tsdb.retention.time=7d` e grava em
 
 - `Prometheus` (`uid: prometheus`): `http://prometheus:9090`, método `POST`,
   padrão e não editável.
-- `Tempo` (`uid: tempo`): `http://tempo:3200`, não editável.
+- `Tempo` (`uid: tempo`): `http://tempo:3200`, não editável. `tracesToLogsV2`
+  consulta o Loki por `trace_id` e mapeia `service.name` para `service_name`.
+- `Loki` (`uid: loki`): `http://loki:3100`, não editável. O campo derivado
+  `TraceID` casa `"trace_id":"(\w+)"` e abre o trace no Tempo.
 
 ### Dashboards
 
@@ -151,8 +188,18 @@ docker run --rm -v "$PWD/provisioning/otel-collector/config.yaml:/etc/otelcol-co
 docker run --rm -v "$PWD/provisioning/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
   --entrypoint /bin/promtool prom/prometheus:v3.15.1 \
   check config /etc/prometheus/prometheus.yml
+
+# Loki
+docker run --rm -v "$PWD/provisioning/loki/loki.yaml:/etc/loki/config.yaml:ro" \
+  grafana/loki:3.6.7 -config.file=/etc/loki/config.yaml -verify-config
+
+# Alloy
+docker run --rm -v "$PWD/provisioning/alloy/config.alloy:/etc/alloy/config.alloy:ro" \
+  grafana/alloy:v1.21.3 validate /etc/alloy/config.alloy
 ```
 
 Depois de subir a stack, confirme em `http://127.0.0.1:3000` que os três
-dashboards aparecem na pasta **Task Manager** e que Prometheus e Tempo respondem
-como datasources saudáveis.
+dashboards aparecem na pasta **Task Manager** e que Prometheus, Tempo e Loki
+respondem como datasources saudáveis. Crie uma tarefa via `http://127.0.0.1:8081`
+e valide que o mesmo `trace_id` aparece no access log do NGINX, nos logs de
+`service-task`/`service-notification` e no trace do Tempo.

@@ -18,7 +18,7 @@ func main() {
 }
 
 func mainWithContext(ctx context.Context) int {
-	log := logger.New()
+	log := logger.New("service-notification")
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

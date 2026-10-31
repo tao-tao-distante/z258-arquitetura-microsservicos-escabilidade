@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-identity/internal/domain"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/middleware"
 )
 
 type fakeService struct {
@@ -180,7 +181,7 @@ func TestInternalErrorLoggedOnceWithCorrelationID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"a@b.com","password":"password"}`))
 	const correlationID = "646a4ca0-94d8-4f4a-b0f0-31fb0ac7b31d"
 	req.Header.Set("x-correlation-id", correlationID)
-	h.Routes().ServeHTTP(rec, req)
+	middleware.Correlation(h.Routes()).ServeHTTP(rec, req)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	require.Equal(t, 1, bytes.Count(logs.Bytes(), []byte(`"msg":"internal_error"`)))
 	require.Contains(t, logs.String(), `"correlation_id":"`+correlationID+`"`)

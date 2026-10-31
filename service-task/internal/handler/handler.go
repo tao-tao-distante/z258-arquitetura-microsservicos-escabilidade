@@ -423,7 +423,7 @@ func writePayloadError(w http.ResponseWriter, err error) {
 }
 
 func (h *Handler) logError(ctx context.Context, operation string, err error) {
-	platformlogger.WithCorrelation(ctx, h.log).ErrorContext(ctx, operation, "error", err)
+	platformlogger.WithContext(ctx, h.log).ErrorContext(ctx, operation, "error", err)
 }
 
 // Health responde o estado do serviço, do PostgreSQL e do RabbitMQ.

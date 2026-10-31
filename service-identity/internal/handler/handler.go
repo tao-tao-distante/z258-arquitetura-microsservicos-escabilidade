@@ -101,7 +101,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /me", h.protected("get_profile", h.GetProfile))
 	mux.Handle("PATCH /me", h.protected("update_profile", h.UpdateProfile))
 	mux.Handle("PUT /me/password", h.limiter.Handler(h.protected("change_password", h.ChangePassword)))
-	return middleware.Correlation(platformmetrics.RoutePattern(mux))
+	return platformmetrics.RoutePattern(mux)
 }
 
 // Register cria um usuário e devolve o JWT emitido.
@@ -174,7 +174,7 @@ func decodeCredentials(w http.ResponseWriter, r *http.Request) (credentials, int
 }
 
 func (h *Handler) logInternal(ctx context.Context, err error) {
-	logger.WithCorrelation(ctx, h.log).ErrorContext(ctx, "internal_error", "error", err)
+	logger.WithContext(ctx, h.log).ErrorContext(ctx, "internal_error", "error", err)
 }
 
 // Health responde o estado do serviço e do PostgreSQL.

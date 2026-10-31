@@ -1,23 +1,60 @@
 package middleware
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // HeaderCorrelationID é o cabeçalho HTTP que transporta o correlation ID.
 const HeaderCorrelationID = "x-correlation-id"
 
+const requestBodyCaptureLimit = 64 * 1024
+
+var loggedBodyFields = map[string]struct{}{
+	"after_id":  {},
+	"before_id": {},
+	"due_date":  {},
+	"priority":  {},
+	"status":    {},
+}
+
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
+}
+
+type requestBodyCapture struct {
+	io.ReadCloser
+	buffer        bytes.Buffer
+	bytesRead     int64
+	contentLength int64
+}
+
+func (c *requestBodyCapture) Read(p []byte) (int, error) {
+	n, err := c.ReadCloser.Read(p)
+	c.bytesRead += int64(n)
+	if remaining := requestBodyCaptureLimit - c.buffer.Len(); remaining > 0 {
+		_, _ = c.buffer.Write(p[:min(n, remaining)])
+	}
+	return n, err
+}
+
+func (c *requestBodyCapture) truncated() bool {
+	return c.bytesRead > requestBodyCaptureLimit || c.contentLength > requestBodyCaptureLimit
 }
 
 // WriteHeader registra o status e encaminha a chamada ao ResponseWriter.
@@ -37,6 +74,7 @@ func Correlation(next http.Handler) http.Handler {
 			id = correlation.NewID()
 		}
 		ctx := correlation.NewContext(r.Context(), id)
+		trace.SpanFromContext(ctx).SetAttributes(attribute.String("correlation_id", id))
 		w.Header().Set(HeaderCorrelationID, id)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -48,15 +86,79 @@ func Logging(l *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			var body *requestBodyCapture
+			if r.Body != nil && r.Body != http.NoBody {
+				body = &requestBodyCapture{ReadCloser: r.Body, contentLength: r.ContentLength}
+				r.Body = body
+			}
 			next.ServeHTTP(rec, r)
 			latency := time.Since(start).Milliseconds()
-			logger.WithCorrelation(r.Context(), l).InfoContext(r.Context(), "http_request",
+			attrs := []any{
 				"method", r.Method,
 				"path", r.URL.Path,
 				"status_code", rec.status,
 				"latency_ms", latency,
-			)
+			}
+			attrs = appendRequestBodyAttrs(attrs, r.Header.Get("Content-Type"), body)
+			logger.WithContext(r.Context(), l).InfoContext(r.Context(), "http_request", attrs...)
 		})
+	}
+}
+
+func appendRequestBodyAttrs(attrs []any, contentType string, body *requestBodyCapture) []any {
+	if body == nil {
+		return attrs
+	}
+	truncated := body.truncated()
+	attrs = append(attrs,
+		"request_body_bytes", body.bytesRead,
+		"request_body_truncated", truncated,
+	)
+	if !isJSON(contentType) || body.bytesRead == 0 {
+		return attrs
+	}
+	if truncated {
+		return append(attrs, "request_body_valid_json", false)
+	}
+
+	var value any
+	if err := json.Unmarshal(body.buffer.Bytes(), &value); err != nil {
+		return append(attrs, "request_body_valid_json", false)
+	}
+	return append(attrs,
+		"request_body_valid_json", true,
+		"request_body", sanitizeBody(value),
+	)
+}
+
+func isJSON(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	return err == nil && (mediaType == "application/json" || strings.HasSuffix(mediaType, "+json"))
+}
+
+func sanitizeBody(value any) any {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return "[REDACTED]"
+	}
+	sanitized := make(map[string]any, len(object))
+	for key, fieldValue := range object {
+		_, allowed := loggedBodyFields[strings.ToLower(key)]
+		if allowed && isScalar(fieldValue) {
+			sanitized[key] = fieldValue
+			continue
+		}
+		sanitized[key] = "[REDACTED]"
+	}
+	return sanitized
+}
+
+func isScalar(value any) bool {
+	switch value.(type) {
+	case nil, bool, float64, string:
+		return true
+	default:
+		return false
 	}
 }
 

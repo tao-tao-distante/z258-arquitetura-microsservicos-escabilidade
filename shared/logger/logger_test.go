@@ -3,36 +3,62 @@ package logger
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
+	"go.opentelemetry.io/otel/trace"
 )
 
-func TestNewEmitsJSON(t *testing.T) {
+func TestNewEmitsServiceName(t *testing.T) {
 	var buf bytes.Buffer
-	l := slog.New(slog.NewJSONHandler(&buf, nil))
+	l := newLogger(&buf, "service-test")
 	l.Info("hello", "k", "v")
-	require.Contains(t, buf.String(), `"msg":"hello"`)
-	require.Contains(t, buf.String(), `"k":"v"`)
+
+	entry := decodeEntry(t, &buf)
+	require.Equal(t, "service-test", entry["service_name"])
+	require.Equal(t, "hello", entry["msg"])
+	require.Equal(t, "v", entry["k"])
 }
 
-func TestWithCorrelationPresent(t *testing.T) {
+func TestWithContextAddsCorrelationAndTrace(t *testing.T) {
 	var buf bytes.Buffer
 	base := slog.New(slog.NewJSONHandler(&buf, nil))
-	ctx := correlation.NewContext(context.Background(), "cid-1")
-	WithCorrelation(ctx, base).Info("x")
-	require.Contains(t, buf.String(), `"correlation_id":"cid-1"`)
+	spanContext := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{1},
+		SpanID:  trace.SpanID{2},
+	})
+	ctx := trace.ContextWithSpanContext(context.Background(), spanContext)
+	ctx = correlation.NewContext(ctx, "cid-1")
+
+	WithContext(ctx, base).InfoContext(ctx, "x")
+
+	entry := decodeEntry(t, &buf)
+	require.Equal(t, "cid-1", entry["correlation_id"])
+	require.Equal(t, spanContext.TraceID().String(), entry["trace_id"])
+	require.Equal(t, spanContext.SpanID().String(), entry["span_id"])
 }
 
-func TestWithCorrelationAbsent(t *testing.T) {
+func TestWithContextOmitsUnavailableIdentifiers(t *testing.T) {
 	var buf bytes.Buffer
 	base := slog.New(slog.NewJSONHandler(&buf, nil))
-	WithCorrelation(context.Background(), base).Info("x")
-	require.NotContains(t, buf.String(), "correlation_id")
+	WithContext(context.Background(), base).Info("x")
+
+	entry := decodeEntry(t, &buf)
+	require.NotContains(t, entry, "correlation_id")
+	require.NotContains(t, entry, "trace_id")
+	require.NotContains(t, entry, "span_id")
 }
 
 func TestNewNotNil(t *testing.T) {
-	require.NotNil(t, New())
+	require.NotNil(t, New("service-test"))
+}
+
+func decodeEntry(t *testing.T, buf *bytes.Buffer) map[string]any {
+	t.Helper()
+	entry := map[string]any{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &entry))
+	return entry
 }

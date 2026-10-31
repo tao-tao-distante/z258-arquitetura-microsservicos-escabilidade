@@ -1,20 +1,17 @@
 {
   "/api/identity": {
-    "target": "http://localhost:8082",
+    "target": "http://localhost:8081",
     "secure": false,
-    "changeOrigin": true,
-    "pathRewrite": { "^/api/identity": "" }
+    "changeOrigin": true
   },
   "/api/tasks": {
-    "target": "http://localhost:8083",
+    "target": "http://localhost:8081",
     "secure": false,
-    "changeOrigin": true,
-    "pathRewrite": { "^/api/tasks": "" }
+    "changeOrigin": true
   },
   "/api/notifications": {
-    "target": "http://localhost:8084",
+    "target": "http://localhost:8081",
     "secure": false,
-    "changeOrigin": true,
-    "pathRewrite": { "^/api/notifications": "" }
+    "changeOrigin": true
   }
 }

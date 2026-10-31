@@ -1,8 +1,7 @@
 # frontend
 
 SPA Angular 20 do Task Manager. Consome as três APIs por URLs relativas
-(`/api/identity`, `/api/tasks`, `/api/notifications`), injeta `x-correlation-id` em
-todas as requisições e serve a aplicação via NGINX.
+(`/api/identity`, `/api/tasks`, `/api/notifications`) e serve a aplicação via NGINX.
 
 - Porta pública: `8081` (NGINX na porta `80` do container).
 - Não fala diretamente com bancos, RabbitMQ ou Prometheus.
@@ -25,7 +24,7 @@ src/app
 ├── core
 │   ├── guards              authGuard
 │   ├── http                apiErrorMessage
-│   ├── interceptors        correlation-id e jwt
+│   ├── interceptors        jwt e tratamento de 401
 │   ├── models              AuthResponse, AuthUser, Credentials, ProfileUpdate, PasswordChange
 │   └── services            AuthService
 ├── shared/components       AuthLayout, PageHeader, FormField, ConfirmDialog
@@ -60,19 +59,21 @@ caso contrário, redireciona para `/login` com `returnUrl`.
 
 ## Fluxo HTTP exclusivo do frontend
 
-A ordem dos interceptors é `observabilityInterceptor` e depois `jwtInterceptor`.
+A aplicação usa `jwtInterceptor`; trace e correlação pertencem à borda e às APIs.
 
-1. **Correlação**: toda requisição recebe um `x-correlation-id` UUID v4. Usa
-   `crypto.randomUUID()` quando disponível e um fallback com
-   `crypto.getRandomValues` definindo versão 4 e variante RFC 4122.
-2. **JWT**: o token é anexado como `Authorization: Bearer ...` somente quando a
+1. **Trace**: o NGINX cria o span de entrada, injeta `traceparent` antes do proxy e devolve `X-Trace-ID` nas respostas
+   de `/api/*`.
+2. **Correlação**: a API gera `x-correlation-id` UUID v4 quando o header está ausente.
+3. **Logs**: o access log do NGINX é JSON (`service_name=frontend-edge`, método, URI sem query, status, duração,
+   `trace_id` e `correlation_id`); query string, headers de autenticação e bodies não são registrados.
+4. **JWT**: o token é anexado como `Authorization: Bearer ...` somente quando a
    URL pertence a `environment.taskUrl` (`/api/tasks`) ou a `/api/identity/me`
    (e subrotas, como `/api/identity/me/password`). Login, registro, health e
    demais rotas do Identity nunca recebem o token.
-3. **401**: em resposta `401` de endpoint protegido, a sessão é limpa e o usuário
+5. **401**: em resposta `401` de endpoint protegido, a sessão é limpa e o usuário
    é levado a `/login` com `returnUrl` interno. Respostas `401` de
    `/api/identity/login` e `/api/identity/register` não disparam logout.
-4. Erros viram mensagens em pt-BR por `apiErrorMessage`.
+6. Erros viram mensagens em pt-BR por `apiErrorMessage`.
 
 ### Sessão
 
@@ -134,9 +135,8 @@ A ordem dos interceptors é `observabilityInterceptor` e depois `jwtInterceptor`
 | Desenvolvimento | `src/environments/environment.ts` | relativas (`/api/...`) |
 | Produção | `src/environments/environment.production.ts` | relativas (`/api/...`) |
 
-- `npm start` usa `proxy.conf.json` para encaminhar `/api/identity` a
-  `localhost:8082`, `/api/tasks` a `localhost:8083` e `/api/notifications` a
-  `localhost:8084`, removendo o prefixo.
+- `npm start` usa `proxy.conf.json` para encaminhar as três rotas ao NGINX em
+  `localhost:8081`, que remove o prefixo e seleciona o upstream.
 - Em produção, o `nginx.conf` faz o mesmo roteamento para os nomes dos containers
   e adiciona headers de segurança (CSP, COOP, Referrer-Policy, nosniff,
   X-Frame-Options) e cache imutável para assets com hash.
@@ -162,7 +162,7 @@ npm test -- --no-watch --code-coverage
 O `Dockerfile` tem dois estágios:
 
 1. `node:20.19-alpine` executa `npm ci` e `npm run build -- --configuration production`;
-2. `nginx:1.31.6-alpine` copia o build e o `nginx.conf`.
+2. `nginx:1.31.8-alpine` instala `nginx-module-otel`, copia o build e configura tracing e balanceamento.
 
 ```sh
 # a partir da raiz do repositório

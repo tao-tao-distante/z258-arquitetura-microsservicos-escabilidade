@@ -55,7 +55,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		if err := d.DispatchOne(ctx); err != nil && ctx.Err() == nil {
-			d.log.ErrorContext(ctx, "outbox dispatch failed", "error", err, "correlation_id", "")
+			d.log.ErrorContext(ctx, "outbox dispatch failed", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -81,7 +81,7 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) error {
 	defer span.End()
 	span.SetAttributes(attribute.String("messaging.message.id", event.EventID))
 	if err := d.publisher.Publish(eventCtx, event.EventID, event.EventType, event.Payload); err != nil {
-		platformlogger.WithCorrelation(eventCtx, d.log).ErrorContext(eventCtx, "outbox publish failed", "error", err, "event_id", event.EventID)
+		platformlogger.WithContext(eventCtx, d.log).ErrorContext(eventCtx, "outbox publish failed", "error", err, "event_id", event.EventID)
 		if retryErr := d.store.RetryOutbox(eventCtx, event.ID, event.Attempts); retryErr != nil {
 			d.metrics.Inc("retry_error")
 			return fmt.Errorf("schedule retry: %w", retryErr)

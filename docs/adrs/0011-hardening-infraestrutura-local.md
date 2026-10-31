@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceito.
+Substituído parcialmente pelo ADR-0014 para a publicação das portas das APIs.
 
 ## Data
 

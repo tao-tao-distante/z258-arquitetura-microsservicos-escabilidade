@@ -1,0 +1,57 @@
+local.file_match "containers" {
+  path_targets = [{
+    "__path__" = "/var/lib/docker/containers/*/*-json.log",
+  }]
+  sync_period = "10s"
+}
+
+discovery.relabel "containers" {
+  targets = local.file_match.containers.targets
+
+  rule {
+    source_labels = ["__path__"]
+    regex         = "/var/lib/docker/containers/([0-9a-f]{12})[0-9a-f]*/.*-json\\.log"
+    target_label  = "container"
+  }
+}
+
+loki.source.file "containers" {
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.process.logs.receiver]
+}
+
+loki.process "logs" {
+  stage.docker {}
+
+  stage.json {
+    expressions = {
+      level        = "level",
+      service_name = "service_name",
+    }
+  }
+
+  stage.template {
+    source   = "level"
+    template = "{{ if .Value }}{{ .Value }}{{ else }}unknown{{ end }}"
+  }
+
+  stage.template {
+    source   = "service_name"
+    template = "{{ if .Value }}{{ .Value }}{{ else }}unknown{{ end }}"
+  }
+
+  stage.labels {
+    values = {
+      level        = "level",
+      service_name = "service_name",
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

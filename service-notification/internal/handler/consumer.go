@@ -107,7 +107,7 @@ func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 		cid = correlation.NewID()
 	}
 	ctx = correlation.NewContext(ctx, cid)
-	log := logger.WithCorrelation(ctx, c.log)
+	log := logger.WithContext(ctx, c.log)
 
 	var event domain.TaskCreatedEvent
 	var invalidReason any
@@ -126,10 +126,7 @@ func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 		return nil
 	}
 
-	log.InfoContext(ctx, "notification_received",
-		"task_id", event.TaskID,
-		"title", event.Title,
-	)
+	log.InfoContext(ctx, "notification_received", "task_id", event.TaskID)
 	if ackErr := delivery.Ack(false); ackErr != nil {
 		c.metrics.Inc("ack_error")
 		return fmt.Errorf("ack delivery: %w", ackErr)

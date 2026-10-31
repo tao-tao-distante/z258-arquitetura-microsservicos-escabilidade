@@ -4,7 +4,7 @@ Microsserviço de tarefas: expõe o CRUD autenticado por JWT, com prioridade, pr
 histórico de alterações, e publica o evento `task.created` no RabbitMQ por meio de um
 outbox transacional. É o único serviço que escreve no banco de tarefas.
 
-- Porta interna: `8080` (publicada como `127.0.0.1:8083`).
+- Porta interna: `8080`; acesso pelo host somente via NGINX em `/api/tasks`.
 - Banco exclusivo: `postgres-task` (database `task`).
 - Dependências: PostgreSQL e RabbitMQ.
 - Valida o JWT localmente; não chama o `service-identity`.
@@ -231,7 +231,9 @@ Pool: 25 conexões abertas, 10 ociosas, vida máxima de 30 min e ociosidade máx
 - Métrica do outbox: `task_manager_task_outbox_events_total{outcome}`, com
   `sent`, `retry`, `retry_error`, `claim_error` e `mark_error`.
 - Métricas HTTP RED em `/metrics`.
-- Logs `slog` com `correlation_id`; falhas de dispatch registram `event_id`.
+- Logs `slog` com `service_name`, `correlation_id`, `trace_id` e `span_id`; falhas de dispatch registram `event_id`.
+  O middleware HTTP registra o body sanitizado, com apenas campos operacionais permitidos e o restante como
+  `[REDACTED]`; corpo inválido, truncado ou não JSON expõe somente tamanho e flags.
 - Spans para `outbox dispatch` e `rabbitmq publish`, com propagação W3C nos headers
   AMQP.
 

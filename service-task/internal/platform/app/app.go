@@ -119,7 +119,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) er
 	routes := http.NewServeMux()
 	routes.Handle("GET /metrics", metricSet.Handler())
 	routes.Handle("/", h.Routes(cfg.JWTSecret))
-	mux := middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(otelhttp.NewHandler(routes, "service-task.http"))))
+	mux := otelhttp.NewHandler(middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(routes))), "service-task.http")
 	srv := NewServer(cfg.Port, mux)
 
 	dispatchCtx, stopDispatcher := context.WithCancel(ctx)

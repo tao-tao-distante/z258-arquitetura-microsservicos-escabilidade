@@ -3,7 +3,7 @@
 Consumidor assíncrono de eventos `task.created`. Não expõe API de negócio, não tem
 banco e não valida JWT: sua única entrada de trabalho é a fila RabbitMQ.
 
-- Porta interna: `8080` (publicada como `127.0.0.1:8084`), usada apenas para
+- Porta interna: `8080`, acessível pelo host via NGINX em `/api/notifications`, usada para
   `/health` e `/metrics`.
 - Dependência: RabbitMQ.
 - Fila: `task.events`, routing key `task.created`.
@@ -50,8 +50,8 @@ consumidor ativo. Qualquer uma falsa resulta em `503`.
    O ID entra no `context.Context` e em todos os logs.
 3. Decodifica o corpo como `TaskCreatedEvent`.
 4. Valida o evento: `task_id > 0` e `title` não vazio após `trim`.
-5. **Evento válido**: registra o log `notification_received` com `task_id` e
-   `title`, executa `Ack(false)` e incrementa `acked`.
+5. **Evento válido**: registra o log `notification_received` com `task_id`,
+   executa `Ack(false)` e incrementa `acked`.
 6. **Evento inválido** (JSON malformado ou campos ausentes): registra
    `invalid event` com o motivo, executa `Nack(false, false)` — sem requeue — e
    incrementa `rejected`. A mensagem segue para `tasks.dlx` e depois para
@@ -84,7 +84,7 @@ autentica usuários.
 
 ## Observabilidade
 
-- Log `notification_received` com `task_id`, `title` e `correlation_id`.
+- Log `notification_received` com `task_id`, `service_name`, `correlation_id`, `trace_id` e `span_id`.
 - Log `invalid event` com o motivo da rejeição.
 - Métrica de negócio: `task_manager_notification_events_total`, com label
   `outcome` (`acked`, `rejected`, `ack_error` ou `nack_error`).

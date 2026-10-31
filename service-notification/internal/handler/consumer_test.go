@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	apitrace "go.opentelemetry.io/otel/trace"
 )
 
 type fakeChannel struct {
@@ -289,7 +290,10 @@ func TestConsumerExtractsW3CTraceContext(t *testing.T) {
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
 	require.Equal(t, "task.created consume", spans[0].Name)
+	require.Equal(t, apitrace.SpanKindConsumer, spans[0].SpanKind)
 	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", spans[0].Parent.TraceID().String())
+	require.Equal(t, "00f067aa0ba902b7", spans[0].Parent.SpanID().String())
+	require.Equal(t, spans[0].Parent.TraceID(), spans[0].SpanContext.TraceID())
 }
 
 func TestAMQPHeaderCarrier(t *testing.T) {

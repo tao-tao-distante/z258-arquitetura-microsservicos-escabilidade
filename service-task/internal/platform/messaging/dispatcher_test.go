@@ -12,6 +12,8 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/broker"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -64,9 +66,17 @@ func TestDispatcherRetriesRabbitFailure(t *testing.T) {
 }
 
 func TestDispatcherRestoresPersistedTraceContext(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	oldProvider := otel.GetTracerProvider()
 	oldPropagator := otel.GetTextMapPropagator()
+	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
-	t.Cleanup(func() { otel.SetTextMapPropagator(oldPropagator) })
+	t.Cleanup(func() {
+		otel.SetTracerProvider(oldProvider)
+		otel.SetTextMapPropagator(oldPropagator)
+		require.NoError(t, tp.Shutdown(context.Background()))
+	})
 
 	store := &fakeOutbox{event: &repository.OutboxEvent{
 		ID:        7,
@@ -80,8 +90,15 @@ func TestDispatcherRestoresPersistedTraceContext(t *testing.T) {
 
 	require.NoError(t, NewDispatcher(store, publisher, slog.Default()).DispatchOne(context.Background()))
 	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", publisher.spanContext.TraceID().String())
-	require.Equal(t, "00f067aa0ba902b7", publisher.spanContext.SpanID().String())
-	require.True(t, publisher.spanContext.IsRemote())
+	require.NotEqual(t, "00f067aa0ba902b7", publisher.spanContext.SpanID().String())
+	require.False(t, publisher.spanContext.IsRemote())
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	require.Equal(t, "outbox dispatch", spans[0].Name)
+	require.Equal(t, trace.SpanKindInternal, spans[0].SpanKind)
+	require.Equal(t, "00f067aa0ba902b7", spans[0].Parent.SpanID().String())
+	require.Equal(t, spans[0].SpanContext.SpanID(), publisher.spanContext.SpanID())
 }
 
 func TestDispatcherPropagatesStoreFailure(t *testing.T) {

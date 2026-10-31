@@ -2,7 +2,8 @@
 
 ## Status
 
-Aceito, com traces OpenTelemetry e métricas Prometheus implementados.
+Substituído parcialmente pelo ADR-0014 para a origem do trace e do `x-correlation-id` e pelo ADR-0015 para logs
+contextuais com `trace_id`/`span_id` e centralização no Loki.
 
 ## Data
 
@@ -44,6 +45,13 @@ diretamente pelo Prometheus conforme ADR-0012.
 - Ruim: `correlation_id` e `trace_id` são independentes; não há link direto entre log e trace.
 - Bom: métricas de aplicação e RabbitMQ alimentam dashboards versionados conforme ADR-0012.
 - Ruim: logs ficam apenas no `stdout`; Loki não faz parte da solução.
+
+## Emenda (ADR-0015)
+
+As afirmações de que logs são indexados apenas por `correlation_id` e de que Loki não faz parte da solução descrevem o
+estado original. Desde o ADR-0015, os logs JSON incluem `service_name`, `correlation_id`, `trace_id` e `span_id`; o Alloy
+coleta o `stdout`/`stderr` e o Loki os armazena com retenção de 7 dias. `correlation_id` continua sendo o identificador
+de aplicação e não substitui o W3C Trace Context.
 
 ## Confirmação
 

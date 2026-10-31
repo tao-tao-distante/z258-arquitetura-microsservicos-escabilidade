@@ -22,7 +22,7 @@ func main() {
 }
 
 func mainWithContext(ctx context.Context) int {
-	log := logger.New()
+	log := logger.New("service-identity")
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	return run(ctx, log, defaultRuntimeDeps())

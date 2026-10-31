@@ -65,8 +65,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) (r
 	routes := http.NewServeMux()
 	routes.Handle("GET /metrics", metricSet.Handler())
 	routes.Handle("/", h.Routes())
-	mux := middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(routes)))
-	mux = otelhttp.NewHandler(mux, "service-identity")
+	mux := otelhttp.NewHandler(middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(routes))), "service-identity")
 	srv := NewServer(cfg.Port, mux)
 	serve := deps.Serve
 	if serve == nil {
