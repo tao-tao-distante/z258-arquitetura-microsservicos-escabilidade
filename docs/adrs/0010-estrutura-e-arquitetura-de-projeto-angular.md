@@ -2,13 +2,19 @@
 
 ## Status
 
-Aceito.
+Aceito. O ADR-0014 substitui os trechos que atribuem telemetria ao Angular.
 
 ## Data
 
 2026-10-28
 
 Atualizado em: 2026-10-29
+
+## Nota de atualização
+
+O frontend não possui `core/telemetry` nem interceptor de observabilidade. O NGINX cria traces e os serviços Go geram
+correlation IDs. A estrutura atual inclui também `features/profile`. Todos os builds usam
+`src/environments/environment.ts`; não existe substituição por `environment.production.ts`.
 
 ## Contexto e Problema
 
@@ -24,8 +30,7 @@ acoplamento entre telas.
   Components, Signals para reatividade local e eliminação do boilerplate de `NgModules`.
 * **Organização Orientada a Funcionalidades (*Feature-First*):** Agrupar componentes, serviços, modelos e rotas por
   domínio de negócio (ex: `auth`, `tasks`, `notifications`).
-* **Isolamento de Efeitos Globais (*Core Layer*):** Centralizar interceptores HTTP (`x-correlation-id`, JWT), *guards*
-  de rota e serviços singleton.
+* **Isolamento de Efeitos Globais (*Core Layer*):** Centralizar o interceptor JWT, *guards* de rota e serviços singleton.
 * **Reaproveitamento de UI (*Shared Layer*):** Isolar componentes visuais genéricos (botões, modais, *cards*, *pipes*,
   diretivas) sem dependências com lógicas de negócio específicas.
 * **Padrão Smart vs. Dumb Components:** Separar componentes de página/contêiner (*Smart Components* - gerenciam estado e
@@ -53,8 +58,7 @@ frontend/
 │   │   ├── core/                       # Lógicas singleton globais da aplicação
 │   │   │   ├── guards/                 # Guards de navegação (auth.guard.ts)
 │   │   │   ├── http/                   # Utilitários HTTP (http-error.utils.ts)
-│   │   │   ├── interceptors/           # Interceptores HTTP (observability.interceptor.ts, jwt.interceptor.ts)
-│   │   │   ├── telemetry/              # Provider e exportador OpenTelemetry do browser
+│   │   │   ├── interceptors/           # Interceptor HTTP JWT
 │   │   │   ├── models/                 # Interfaces/Types do ecossistema global
 │   │   │   └── services/               # Serviços globais (auth.service.ts)
 │   │   │
@@ -79,8 +83,9 @@ frontend/
 │   │   │   │   ├── models/             # Task, TaskStatus, TaskPayload
 │   │   │   │   └── tasks.routes.ts     # Tabela de rotas lazy-loaded da feature
 │   │   │   │
-│   │   │   └── notifications/          # Tela de Atividades (eventos e saúde do consumidor)
-│   │   │       └── notifications.component.ts
+│   │   │   ├── notifications/          # Tela de Atividades (eventos e saúde do consumidor)
+│   │   │   │   └── notifications.component.ts
+│   │   │   └── profile/                # Perfil e troca de senha
 │   │   │
 │   │   ├── app.config.ts               # Provedores globais, rotas e interceptores da aplicação
 │   │   ├── app.routes.ts               # Tabela principal de rotas (lazy-loaded features)

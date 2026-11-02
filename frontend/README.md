@@ -102,8 +102,12 @@ A aplicação usa `jwtInterceptor`; trace e correlação pertencem à borda e à
 - `list()` busca páginas de 100 itens com `expand` até receber uma página menor;
 - `get`, `create`, `update` e `remove` validam o status esperado (`200`, `201`,
   `200`, `204`) e transformam status inesperado em `HttpErrorResponse`;
+- `create` e `update` recebem somente `{"id": number}`; `move` e as consultas recebem a tarefa completa;
 - `history(id, offset, limit)` busca páginas de 20 entradas em `/tasks/{id}/history`;
 - corpo vazio em resposta que deveria ter corpo também vira erro.
+
+Após criar, o formulário navega para `/tasks/board`, que faz uma nova listagem. Após editar, navega para
+`/tasks/{id}`. O fluxo de criação não busca o detalhe nem o histórico da tarefa criada.
 
 ### Prioridade, prazo e histórico
 
@@ -130,10 +134,8 @@ A aplicação usa `jwtInterceptor`; trace e correlação pertencem à borda e à
 
 ## Ambientes e proxy
 
-| Ambiente | Arquivo | URLs |
-|---|---|---|
-| Desenvolvimento | `src/environments/environment.ts` | relativas (`/api/...`) |
-| Produção | `src/environments/environment.production.ts` | relativas (`/api/...`) |
+Todos os builds usam `src/environments/environment.ts`, com URLs relativas `/api/...`. Não há substituição de arquivo
+por ambiente no `angular.json`.
 
 - `npm start` usa `proxy.conf.json` para encaminhar as três rotas ao NGINX em
   `localhost:8081`, que remove o prefixo e seleciona o upstream.

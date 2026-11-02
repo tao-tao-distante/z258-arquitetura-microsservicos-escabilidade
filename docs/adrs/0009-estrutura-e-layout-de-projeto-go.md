@@ -2,11 +2,17 @@
 
 ## Status
 
-Aceito.
+Aceito. A estrutura abaixo é uma referência; cada serviço contém somente as camadas exigidas por sua função.
 
 ## Data
 
 2026-10-28
+
+## Nota de atualização
+
+O layout atual usa `cmd/server`, `internal` e `internal/platform`. Identity e Task possuem repositórios; Notification não
+possui banco nem pacote de serviço. O módulo `shared` inclui `auth`, `broker`, `correlation`, `httpx`, `logger`, `metrics`,
+`middleware` e `telemetry`, consumidos por `replace ../shared`.
 
 ## Contexto e Problema
 

@@ -2,11 +2,17 @@
 
 ## Status
 
-Aceito.
+Aceito. O ADR-0014 substitui a responsabilidade de tracing e correlação atribuída ao frontend.
 
 ## Data
 
 2026-10-28
+
+## Nota de atualização
+
+O frontend atual usa Angular 20, componentes standalone, Signals, formulários reativos e rotas lazy. Angular não cria
+spans, `traceparent` nem `x-correlation-id`. O NGINX inicia o trace, e os serviços Go geram o identificador de correlação
+quando necessário. Não há SDK OpenTelemetry no bundle do navegador.
 
 ## Contexto e Problema
 
@@ -17,8 +23,8 @@ microsserviços.
 ## Fatores de Decisão
 
 * Padronização arquitetural nativa (injeção de dependência, módulos, roteamento).
-* Suporte nativo ao TypeScript para garantia de contratos de API.
-* Interceptors HTTP para autenticação e correlação de aplicação.
+* Suporte nativo ao TypeScript para verificar contratos de API durante o build.
+* Interceptor HTTP para autenticação das rotas protegidas.
 
 ## Opções Consideradas
 

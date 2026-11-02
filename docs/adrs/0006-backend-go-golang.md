@@ -2,11 +2,17 @@
 
 ## Status
 
-Aceito.
+Aceito. A implementação atual fixa Go 1.23 e usa `net/http`.
 
 ## Data
 
 2026-10-28
+
+## Nota de atualização
+
+Os quatro módulos Go declaram `go 1.23`. Os serviços usam `net/http`, `context.Context`, `log/slog` e tratamento explícito
+de erros. Os builds definem `CGO_ENABLED=0` e geram binários para imagens Alpine. Essas escolhas concretizam a decisão;
+latência e consumo continuam sujeitos a medição.
 
 ## Contexto e Problema
 

@@ -2,12 +2,19 @@
 
 ## Status
 
-Substituído parcialmente pelo ADR-0014 para a origem do trace e do `x-correlation-id` e pelo ADR-0015 para logs
-contextuais com `trace_id`/`span_id` e centralização no Loki.
+Substituído parcialmente pelo ADR-0014 para a origem do trace e pelo ADR-0015 para logs contextuais e centralização no
+Loki. O `x-correlation-id` continua sendo gerado pelos serviços Go, não pelo Angular.
 
 ## Data
 
 2026-10-28
+
+## Nota de atualização
+
+O resultado abaixo registra o estado original. No estado atual, Angular não cria spans nem IDs. O NGINX cria o trace na
+borda e injeta W3C Trace Context. Os serviços aceitam `x-correlation-id` somente quando o valor é UUID v4; caso contrário,
+geram outro. `task_outbox.trace_context` persiste o carrier W3C em JSONB. ADR-0014 e ADR-0015 prevalecem onde houver
+conflito.
 
 ## Contexto e Problema
 

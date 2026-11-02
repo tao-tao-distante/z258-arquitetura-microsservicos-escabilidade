@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceito.
+Aceito. O ADR-0016 define os SLIs, SLOs, janelas, populações e denominadores que usam estas fontes.
 
 ## Data
 
@@ -39,8 +39,9 @@ O plugin oficial `rabbitmq_prometheus` expõe `/metrics` em `rabbitmq:15692`. M�
 distinguir `task.events` e `task.events.dlq`; esta escolha é aceitável apenas porque a stack local possui poucas filas.
 Prometheus participa também da rede interna `messaging`, sem publicação adicional de portas.
 
-Grafana provisiona três dashboards JSON imutáveis no diretório `Task Manager`:
+Grafana provisiona quatro dashboards JSON imutáveis no diretório `Task Manager`:
 
+- `Task Manager - Observabilidade Unificada`;
 - `Task Manager - Visão de Negócio`;
 - `Task Manager - Backends Go`;
 - `Task Manager - RabbitMQ`.
@@ -68,10 +69,11 @@ Seria rápido, mas perderia reprodutibilidade e revisão por Git. Rejeitada em f
 - Bom: dashboards reaparecem após `docker compose down -v`.
 - Ruim: scrape direto e OTLP usam caminhos distintos; operação deve conhecer ambos.
 - Ruim: métricas por objeto do RabbitMQ não escalam para milhares de filas; produção deve reavaliar agregação e cardinalidade.
-- Ruim: não há Alertmanager nem SLOs formais; os dashboards são diagnóstico, não garantia de nível de serviço.
+- Ruim: não há Alertmanager nem alertas de burn rate; os dashboards são diagnóstico, não garantia de nível de serviço.
 
 ## Confirmação
 
 Subir a stack e confirmar `up == 1` para jobs `service-identity`, `service-task`, `service-notification` e `rabbitmq`.
 Executar cadastro, login e criação de tarefa; verificar incremento dos quatro contadores de negócio e das séries HTTP.
-No Grafana, abrir os três dashboards provisionados e confirmar `task.events` e `task.events.dlq` no dashboard RabbitMQ.
+No Grafana, abrir os quatro dashboards provisionados, pesquisar um `trace_id` no painel unificado e confirmar
+`task.events` e `task.events.dlq` no dashboard RabbitMQ.

@@ -26,8 +26,9 @@ permite escalar réplicas pelo Compose sem conflito de bind.
 
 ### Eventos
 
-`service-task` grava a tarefa e o evento em `task_outbox` na mesma transação. Um dispatcher reivindica eventos pendentes
-com lease de 30s, publica com publisher confirms e `mandatory`, e agenda retry com backoff exponencial em caso de falha.
+`service-task` grava a tarefa e o evento em `task_outbox` na mesma transação. O outbox também guarda `correlation_id` e
+o carrier W3C em `trace_context` JSONB. Um dispatcher reivindica eventos pendentes com lease de 30s, publica com
+publisher confirms e `mandatory`, e agenda retry com backoff exponencial em caso de falha.
 A exchange `tasks` é `topic` e a fila durável `task.events` usa `tasks.dlx` como dead-letter exchange.
 `service-notification` confirma eventos válidos; JSON inválido recebe `Nack(requeue=false)` e vai para `task.events.dlq`.
 O consumidor não faz retry próprio: falhas de Ack/Nack encerram o consumo para o supervisor reiniciar a conexão. A
@@ -73,8 +74,9 @@ O Collector aceita OTLP/gRPC em `0.0.0.0:4317` e OTLP/HTTP em `0.0.0.0:4318` den
 
 Tempo 3.1.1 roda em modo monolítico (`target=all`), recebe OTLP em binds explícitos, grava WAL/blocos em `/var/tempo`,
 usa backend local e retenção de 24 horas. Prometheus mantém TSDB por 7 dias. Loki 3.6.7 roda em modo monolítico com
-schema TSDB v13, backend `filesystem` e retenção de 7 dias, sem porta publicada. O Alloy lê os arquivos `*-json.log`
-do diretório `containers` do Docker (`DOCKER_ROOT_DIR`), desembrulha o JSON do driver com `stage.docker` e envia ao Loki. Os labels são apenas
+schema TSDB v13, backend `filesystem` e retenção de 7 dias, sem porta publicada. Os processos escrevem em `stdout` e
+`stderr`; o Docker grava essas streams em arquivos `*-json.log`. O Alloy lê esses arquivos no diretório `containers`
+do Docker (`DOCKER_ROOT_DIR`), desembrulha o JSON do driver com `stage.docker` e envia ao Loki. Os labels são apenas
 `service_name`, `level` e `container`; IDs permanecem no corpo e são consultados com `| json`. Grafana recebe datasources
 provisionados para Prometheus, Tempo e Loki, com links Loki→Tempo (`derivedFields`) e Tempo→Loki (`tracesToLogsV2`).
 
@@ -83,6 +85,13 @@ permitidos (`status`, `priority`, `due_date`, `before_id`, `after_id`) e todo o 
 inválido, truncado ou não JSON gera apenas tamanho e flags. O NGINX registra access log JSON sem query string, headers
 de autenticação ou body e devolve `X-Trace-ID` nas respostas de `/api/*`. Decisão em
 [ADR-0015](adrs/0015-logs-contextuais-loki-alloy.md).
+
+Além do log HTTP, os handlers registram eventos de negócio com nível explícito e sem PII: `user_registered`,
+`login_succeeded`, `profile_updated`, `password_changed`, `task_created`, `task_updated`, `task_moved`,
+`task_deleted`, `outbox_event_published`, `notification_received`, `consumer_started` e `consumer_stopped` em `INFO`;
+`login_failed` e `outbox_event_retry_scheduled` em `WARN`; `internal_error`, `invalid event` e `outbox publish failed` em
+`ERROR`. Esses eventos carregam apenas IDs, status, prioridade e posição; e-mail, nome, título, descrição, senha e token
+nunca são registrados.
 
 Os serviços usam `otelhttp` no servidor HTTP e spans manuais na publicação/consumo AMQP e no dispatch do outbox, portanto
 traces aparecem no Tempo/Grafana. `prometheus/client_golang` expõe runtime Go, processo, taxa/status/latência HTTP e os
@@ -98,34 +107,28 @@ O plugin RabbitMQ retorna métricas por objeto para separar `task.events` e `tas
 local pequena, mas deve ser desabilitado ou filtrado em ambientes com muitas filas. Prometheus acessa `:15692` pela rede
 interna `messaging`; a porta não é publicada no host.
 
-Grafana provisiona três dashboards versionados em `provisioning/grafana/dashboard-definitions`: visão de negócio,
-backends Go e RabbitMQ. O provider em `provisioning/grafana/dashboards/providers.yml` recarrega arquivos a cada 10s.
+Grafana provisiona quatro dashboards versionados em `provisioning/grafana/dashboard-definitions`: observabilidade
+unificada, visão de negócio, backends Go e RabbitMQ. O painel unificado combina métricas Prometheus, traces Tempo e logs
+Loki, com filtro por serviço e busca exata por `trace_id`. O provider em `provisioning/grafana/dashboards/providers.yml`
+recarrega arquivos a cada 10s.
 
-## SLOs
+## SLIs e SLOs
 
-Os objetivos abaixo valem para a stack Compose com uma réplica por serviço e são medidos de ponta a ponta pelo NGINX
-(`:8081`), que é o caminho real do usuário. Cada SLI usa uma janela de 30 dias; no ambiente local, o teste de carga é a
-evidência de aderência.
+O [ADR-0016](adrs/0016-slis-slos-e-fontes-de-medicao.md) define populações, denominadores, janelas e fontes. A janela de
+aceitação é uma execução completa do k6, com 2 minutos por padrão. A janela operacional é móvel de 7 dias, compatível
+com a retenção atual.
 
-| SLI                              | SLO                                     | Fonte de medição                                                                  |
-|----------------------------------|-----------------------------------------|-----------------------------------------------------------------------------------|
-| Latência de `GET /tasks`         | p95 < 200 ms e p99 < 500 ms             | k6 (`loadtest/tasks.js`) e `task_manager_http_request_duration_seconds`           |
-| Latência de `POST /tasks`        | p95 < 300 ms                            | k6 (`loadtest/tasks.js`) e `task_manager_http_request_duration_seconds`           |
-| Taxa de erro HTTP                | < 1% de respostas 5xx ou falhas de rede | k6 (`http_req_failed`) e `task_manager_http_requests_total` por `status`          |
-| Entrega do evento `task.created` | 99,9% publicados em até 5 s             | `sent_at - created_at` em `task_outbox` e `task_manager_task_outbox_events_total` |
-| Disponibilidade das APIs         | 99,5%                                   | `GET /health` dos serviços e alvo `up` no Prometheus                              |
+O k6 mede o caminho pela borda em `:8081`. As métricas `task_manager_http_*` medem somente o processamento dentro dos
+handlers Go e servem para diagnóstico. `up` mede a capacidade de scrape do Prometheus, não a disponibilidade do caminho
+do usuário. Não há probe sintético contínuo na borda.
 
-A latência de criação é mais alta que a de leitura porque a escrita grava tarefa, histórico e outbox na mesma transação.
-O SLO de entrega mede a consistência eventual do outbox: o dispatcher varre pendentes a cada 500 ms e, em falha, aplica
-backoff exponencial de até 64 s. Por isso, uma indisponibilidade do RabbitMQ maior que alguns segundos consome o
-orçamento de erro desse SLO sem afetar os SLOs HTTP.
-
-### Medição
+O SLI do outbox usa a coorte de eventos criados na janela. Eventos pendentes há mais de 5 segundos permanecem no
+denominador e contam como falha. A fonte normativa é `task_outbox`; o contador
+`task_manager_task_outbox_events_total` não contém idade nem quantidade de pendentes.
 
 `loadtest/tasks.js` registra um usuário de teste, cria tarefas iniciais e roda dois cenários de taxa constante em
-paralelo: leitura (`GET /tasks`, 50 req/s) e criação (`POST /tasks`, 10 req/s) por 2 minutos. Os thresholds do k6
-codificam os SLOs HTTP, e o processo termina com código diferente de zero quando algum é violado. O resumo com p50, p95,
-p99 e throughput por endpoint fica em `results-summary.json`, no diretório de execução.
+paralelo: leitura (`GET /tasks`, 50 req/s) e criação (`POST /tasks`, 10 req/s) por 2 minutos. O resumo com p50, p95, p99
+e throughput por endpoint fica em `results-summary.json`, no diretório de execução.
 
 ```sh
 docker compose up --build -d
@@ -135,17 +138,8 @@ docker run --rm -v "$PWD/loadtest:/scripts" -w /scripts \
 ```
 
 `DURATION`, `LIST_RATE`, `CREATE_RATE` e `SEED_TASKS` ajustam o cenário. O registro no `setup` usa uma única chamada
-para não atingir o rate limit de `/register`.
-
-O SLO de entrega é verificado após o teste:
-
-```sh
-docker compose exec postgres-task psql -U task -d task -c "
-  SELECT count(*) AS eventos,
-         percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM sent_at - created_at)) AS p95_s,
-         avg((sent_at - created_at <= interval '5 seconds')::int) AS dentro_do_slo
-  FROM task_outbox WHERE sent_at IS NOT NULL"
-```
+para não atingir o rate limit de `/register`. A consulta do outbox está no ADR-0016 e inclui enviados e pendentes
+vencidos.
 
 ## Segurança e isolamento
 
@@ -192,4 +186,5 @@ preserva os volumes; `down -v` os apaga.
 
 Decisões ficam em [`docs/adrs`](adrs/). ADR-0002 separa correlação de aplicação de W3C Trace Context; ADR-0003 descreve
 semântica real da DLQ; ADR-0011 registra hardening e segmentação; ADR-0012 define métricas e dashboards; ADR-0014 cobre
-tracing na borda; ADR-0015 define logs contextuais, sanitização e a stack Loki/Alloy.
+tracing na borda; ADR-0015 define logs contextuais, sanitização e a stack Loki/Alloy; ADR-0016 fixa SLIs, SLOs, janelas,
+populações e fontes.
