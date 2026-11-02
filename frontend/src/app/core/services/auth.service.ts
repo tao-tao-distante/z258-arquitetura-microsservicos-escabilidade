@@ -1,4 +1,4 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { tap } from 'rxjs';
@@ -22,8 +22,6 @@ export class AuthService {
 
   readonly token = signal<string | null>(null);
   readonly user = signal<AuthUser | null>(null);
-  readonly isAuthenticated = computed(() => this.token() !== null);
-
   constructor() {
     const token = window.localStorage.getItem(TOKEN_KEY);
     const user = this.readUser();
@@ -97,7 +95,7 @@ export class AuthService {
   private persist(res: AuthResponse): void {
     window.localStorage.setItem(TOKEN_KEY, res.token);
     this.token.set(res.token);
-    this.storeUser({ id: res.id, email: res.email, name: res.name ?? '' });
+    this.storeUser({ id: res.id, email: res.email, name: res.name });
   }
 
   private storeUser(user: AuthUser): void {

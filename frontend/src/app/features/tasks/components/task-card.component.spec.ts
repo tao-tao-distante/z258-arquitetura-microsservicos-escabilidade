@@ -5,7 +5,6 @@ import { TaskCardComponent } from './task-card.component';
 
 const task: Task = {
   id: 7,
-  user_id: 1,
   title: 'Revisar release',
   description: '',
   status: 'doing',

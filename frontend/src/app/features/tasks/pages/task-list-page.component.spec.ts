@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { Task } from '../models/task.model';
 import { TaskDataService } from '../services/task-data.service';
 import { todayISO } from '../task.utils';
@@ -14,7 +14,6 @@ function shiftDays(days: number): string {
 
 const base: Task = {
   id: 1,
-  user_id: 1,
   title: 'Task',
   description: '',
   status: 'todo',
@@ -117,5 +116,40 @@ describe('TaskListPageComponent', () => {
 
     expect(component.priorityFilter()).toBe('all');
     expect(component.sort()).toBe('position');
+  });
+
+  it('searches from both responsive inputs and filters through status buttons', () => {
+    const { fixture, component } = setup();
+    const root = fixture.nativeElement as HTMLElement;
+    const searches = Array.from(root.querySelectorAll('input[type="search"]')) as HTMLInputElement[];
+
+    searches[0].value = 'urgente';
+    searches[0].dispatchEvent(new Event('input'));
+    expect(ids(component.filtered())).toEqual([2]);
+
+    searches[1].value = '';
+    searches[1].dispatchEvent(new Event('input'));
+    const buttons = Array.from(root.querySelectorAll('.filters button')) as HTMLButtonElement[];
+    buttons.forEach((button) => button.click());
+
+    expect(component.filter()).toBe('done');
+    expect(ids(component.filtered())).toEqual([4]);
+  });
+
+  it('shows a service failure', () => {
+    TestBed.configureTestingModule({
+      imports: [TaskListPageComponent],
+      providers: [
+        provideRouter([]),
+        { provide: TaskDataService, useValue: { list: () => throwError(() => ({ status: 500 })) } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(TaskListPageComponent);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.error()).toBe('Não foi possível carregar as tarefas.');
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).not.toBeNull();
   });
 });

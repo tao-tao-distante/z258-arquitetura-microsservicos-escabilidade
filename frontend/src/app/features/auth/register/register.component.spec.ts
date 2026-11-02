@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { AuthService } from '../../../core/services/auth.service';
 import { RegisterComponent } from './register.component';
@@ -57,5 +57,24 @@ describe('RegisterComponent', () => {
 
     expect(fixture.componentInstance.error()).toContain('Muitas tentativas');
     expect(fixture.componentInstance.loading()).toBe(false);
+  });
+
+  it('binds fields, clears an error and submits through the form', async () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    fixture.componentInstance.error.set('Erro anterior');
+    const root = fixture.nativeElement as HTMLElement;
+    const email = root.querySelector('#register-email') as HTMLInputElement;
+    const password = root.querySelector('#register-password') as HTMLInputElement;
+
+    email.value = 'user@example.com';
+    email.dispatchEvent(new Event('input'));
+    password.value = 'secret123';
+    password.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    (root.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+
+    expect(fixture.componentInstance.error()).toBe('');
+    expect(auth.register).toHaveBeenCalledWith({ email: 'user@example.com', password: 'secret123' });
+    expect(navigate).toHaveBeenCalledWith(['/dashboard']);
   });
 });

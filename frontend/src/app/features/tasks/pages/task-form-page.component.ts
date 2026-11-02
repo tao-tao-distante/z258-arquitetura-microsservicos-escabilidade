@@ -234,8 +234,8 @@ export class TaskFormPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  readonly statuses = STATUSES;
-  readonly priorities = PRIORITIES;
+  readonly statuses: TaskStatus[];
+  readonly priorities: TaskPriority[];
   readonly today = todayISO();
   readonly loading = signal(false);
   readonly submitted = signal(false);
@@ -249,10 +249,16 @@ export class TaskFormPageComponent implements OnInit {
   title = '';
   description = '';
   statusValue: TaskStatus = 'todo';
-  priority: TaskPriority = DEFAULT_PRIORITY;
+  priority: TaskPriority;
   dueDate = '';
   /** Prazo salvo; um prazo já vencido pode ser mantido na edição, mas não escolhido de novo. */
   private originalDueDate: string | null = null;
+
+  constructor() {
+    this.statuses = STATUSES;
+    this.priorities = PRIORITIES;
+    this.priority = DEFAULT_PRIORITY;
+  }
 
   ngOnInit(): void {
     const raw = this.route.snapshot.paramMap.get('id');
@@ -271,7 +277,7 @@ export class TaskFormPageComponent implements OnInit {
         this.title = task.title;
         this.description = task.description;
         this.statusValue = task.status;
-        this.priority = task.priority ?? DEFAULT_PRIORITY;
+        this.priority = task.priority;
         this.dueDate = task.due_date ?? '';
         this.originalDueDate = task.due_date;
         this.loading.set(false);
@@ -333,10 +339,11 @@ export class TaskFormPageComponent implements OnInit {
     this.loading.set(true);
 
     const id = this.taskId();
-    const request = id === null ? this.data.create(payload) : this.data.update(id, payload);
+    const creating = id === null;
+    const request = creating ? this.data.create(payload) : this.data.update(id, payload);
 
     request.pipe(finalize(() => this.loading.set(false))).subscribe({
-      next: (task) => void this.router.navigate(['/tasks', task.id]),
+      next: (task) => void this.router.navigate(creating ? ['/tasks/board'] : ['/tasks', task.id]),
       error: (err: HttpErrorResponse) =>
         this.error.set(
           err.status === 400

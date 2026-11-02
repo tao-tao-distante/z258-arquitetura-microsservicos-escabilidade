@@ -25,7 +25,6 @@ describe('TaskDataService', () => {
     let taskCount = 0;
     const task = (id: number) => ({
       id,
-      user_id: 1,
       title: `Task ${id}`,
       description: '',
       status: 'todo' as const,
@@ -57,7 +56,6 @@ describe('TaskDataService', () => {
     service.get(7).subscribe((task) => (taskId = task.id));
     requests.expectOne('/api/tasks/tasks/7').flush({
       id: 7,
-      user_id: 1,
       title: 'Task',
       description: '',
       status: 'todo',
@@ -91,7 +89,6 @@ describe('TaskDataService', () => {
     const request = requests.expectOne('/api/tasks/tasks/7/move');
     request.flush({
       id: 7,
-      user_id: 1,
       title: 'Task',
       description: '',
       status: 'doing',
@@ -142,5 +139,30 @@ describe('TaskDataService', () => {
     request.flush({ id: 1 }, { status: 201, statusText: 'Created' });
 
     expect(request.request.body).toEqual({ title: 'Task', priority: 'urgent', due_date: '2026-11-15' });
+  });
+
+  it('updates a task and returns its id', () => {
+    const service = TestBed.inject(TaskDataService);
+    const requests = TestBed.inject(HttpTestingController);
+    let id = 0;
+
+    service.update(7, { title: 'Updated' }).subscribe((response) => (id = response.id));
+    const request = requests.expectOne('/api/tasks/tasks/7');
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.body).toEqual({ title: 'Updated' });
+    request.flush({ id: 7 });
+
+    expect(id).toBe(7);
+  });
+
+  it('rejects an empty response body when one is required', () => {
+    const service = TestBed.inject(TaskDataService);
+    const requests = TestBed.inject(HttpTestingController);
+    let failed = false;
+
+    service.get(7).subscribe({ error: () => (failed = true) });
+    requests.expectOne('/api/tasks/tasks/7').flush(null);
+
+    expect(failed).toBe(true);
   });
 });

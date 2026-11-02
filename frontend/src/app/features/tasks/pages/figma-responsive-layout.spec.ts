@@ -10,7 +10,6 @@ import { TaskListPageComponent } from './task-list-page.component';
 const tasks: Task[] = [
   {
     id: 1,
-    user_id: 1,
     title: 'Preparar release',
     description: 'Revisar checklist',
     status: 'doing',
