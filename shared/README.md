@@ -12,16 +12,16 @@ replace github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade
 
 ## Pacotes
 
-| Pacote | Responsabilidade |
-|---|---|
-| `auth` | Hash bcrypt, emissão e validação de JWT HS256, extração do header `Authorization` e middleware de autenticação. |
-| `broker` | Nomes da topologia AMQP e declaração idempotente de exchange, fila, DLX e DLQ. |
-| `correlation` | Propagação do `x-correlation-id` via `context.Context` e geração de UUID v4. |
-| `httpx` | Escrita de JSON/erro, decodificação estrita com limite de payload e handler de health. |
-| `logger` | Logger `log/slog` JSON em stdout e enriquecimento com `correlation_id`. |
-| `metrics` | Registro Prometheus isolado por serviço, métricas HTTP RED e contadores de negócio. |
-| `middleware` | Middleware de correlação, log de requisições e rate limiter em memória. |
-| `telemetry` | Provider OTLP/gRPC para traces, com fallback no-op quando o endpoint está vazio. |
+| Pacote        | Responsabilidade                                                                                                |
+|---------------|-----------------------------------------------------------------------------------------------------------------|
+| `auth`        | Hash bcrypt, emissão e validação de JWT HS256, extração do header `Authorization` e middleware de autenticação. |
+| `broker`      | Nomes da topologia AMQP e declaração idempotente de exchange, fila, DLX e DLQ.                                  |
+| `correlation` | Propagação do `x-correlation-id` via `context.Context` e geração de UUID v4.                                    |
+| `httpx`       | Escrita de JSON/erro, decodificação estrita com limite de payload e handler de health.                          |
+| `logger`      | Logger `log/slog` JSON em stdout e enriquecimento com `correlation_id`.                                         |
+| `metrics`     | Registro Prometheus isolado por serviço, métricas HTTP RED e contadores de negócio.                             |
+| `middleware`  | Middleware de correlação, log de requisições e rate limiter em memória.                                         |
+| `telemetry`   | Provider OTLP/gRPC para traces, com fallback no-op quando o endpoint está vazio.                                |
 
 ## Contratos compartilhados
 
@@ -36,7 +36,7 @@ replace github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade
 ### Correlação
 
 - Header HTTP e AMQP: `x-correlation-id`.
-- `middleware.Correlation` aceita o valor apenas se for UUID válido; caso contrário,
+- `middleware.Correlation` aceita o valor apenas se for UUID v4 válido; caso contrário,
   reutiliza o ID já presente no contexto ou gera um novo.
 - O ID é devolvido no header da resposta e usado por logs e spans.
 
@@ -44,13 +44,13 @@ replace github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade
 
 Definida em `broker` e declarada de forma idempotente por publicador e consumidor:
 
-| Elemento | Nome |
-|---|---|
-| Exchange | `tasks` (topic, durável) |
-| Fila | `task.events` |
-| Routing key | `task.created` |
-| Dead letter exchange | `tasks.dlx` (fanout) |
-| Dead letter queue | `task.events.dlq` |
+| Elemento             | Nome                     |
+|----------------------|--------------------------|
+| Exchange             | `tasks` (topic, durável) |
+| Fila                 | `task.events`            |
+| Routing key          | `task.created`           |
+| Dead letter exchange | `tasks.dlx` (fanout)     |
+| Dead letter queue    | `task.events.dlq`        |
 
 A fila `task.events` declara `x-dead-letter-exchange: tasks.dlx`.
 

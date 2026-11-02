@@ -35,6 +35,7 @@ func TestCorrelation(t *testing.T) {
 		{name: "keeps valid header", header: validHeader, want: validHeader},
 		{name: "generates when header missing", wantNewUUID: true},
 		{name: "replaces invalid header", header: "not-a-uuid", wantNewUUID: true},
+		{name: "replaces non-v4 header", header: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", wantNewUUID: true},
 		{name: "keeps valid id from context", ctxID: validCtx, want: validCtx},
 		{name: "replaces invalid id from context", ctxID: "outer-cid", wantNewUUID: true},
 		{name: "prefers valid header over context", header: validHeader, ctxID: validCtx, want: validHeader},
@@ -60,8 +61,9 @@ func TestCorrelation(t *testing.T) {
 			h.ServeHTTP(rec, req)
 
 			if tt.wantNewUUID {
-				_, err := uuid.Parse(got)
+				parsed, err := uuid.Parse(got)
 				require.NoError(t, err)
+				require.Equal(t, uuid.Version(4), parsed.Version())
 				require.NotEqual(t, tt.header, got)
 				require.NotEqual(t, tt.ctxID, got)
 			} else {

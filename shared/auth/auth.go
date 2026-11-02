@@ -135,7 +135,7 @@ func FromContext(ctx context.Context) *Claims {
 }
 
 // Middleware exige um Bearer token válido, reporta rejeições e injeta as claims no contexto.
-func Middleware(secret string, unauthorizedCallbacks ...func(*http.Request)) func(http.Handler) http.Handler {
+func Middleware(secret string, onUnauthorized func(*http.Request)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if token, err := TokenFromHeader(r.Header.Get("Authorization")); err == nil {
@@ -144,17 +144,9 @@ func Middleware(secret string, unauthorizedCallbacks ...func(*http.Request)) fun
 					return
 				}
 			}
-			notifyUnauthorized(r, unauthorizedCallbacks)
+			onUnauthorized(r)
 			writeUnauthorized(w)
 		})
-	}
-}
-
-func notifyUnauthorized(r *http.Request, callbacks []func(*http.Request)) {
-	for _, callback := range callbacks {
-		if callback != nil {
-			callback(r)
-		}
 	}
 }
 

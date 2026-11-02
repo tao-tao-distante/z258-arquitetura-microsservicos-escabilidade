@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
 	"go.opentelemetry.io/otel/attribute"
@@ -63,14 +62,14 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// Correlation aceita apenas UUID válido e gera um novo quando o header e o contexto são inválidos.
+// Correlation aceita apenas UUID v4 e gera um novo quando o header e o contexto são inválidos.
 func Correlation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(HeaderCorrelationID)
-		if _, err := uuid.Parse(id); err != nil {
+		if !correlation.ValidID(id) {
 			id = correlation.FromContext(r.Context())
 		}
-		if _, err := uuid.Parse(id); err != nil {
+		if !correlation.ValidID(id) {
 			id = correlation.NewID()
 		}
 		ctx := correlation.NewContext(r.Context(), id)

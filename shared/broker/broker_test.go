@@ -8,6 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestHeaderCarrierIsCaseInsensitive(t *testing.T) {
+	carrier := HeaderCarrier{}
+	carrier.Set("traceparent", "value")
+
+	require.Equal(t, "value", carrier.Get("TraceParent"))
+	require.Empty(t, carrier.Get("tracestate"))
+	require.Equal(t, []string{"traceparent"}, carrier.Keys())
+}
+
 type fakeChannel struct {
 	calls     []string
 	failAt    string
