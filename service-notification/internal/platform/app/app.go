@@ -11,6 +11,7 @@ import (
 
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-notification/internal/handler"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-notification/internal/platform/config"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/httpx"
 	platformmetrics "github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/metrics"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/middleware"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/telemetry"
@@ -72,7 +73,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, dial Dialer) 
 	consumerDone := make(chan error, 1)
 	go func() { consumerDone <- consumer.Start(runCtx) }()
 
-	health := newHealth(conn, ch, consumer)
+	health := healthDependencies(conn, ch, consumer)
 	srv := NewServer(cfg.Port, newHTTPHandler(health, log, metricSet))
 	listener, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
@@ -122,19 +123,17 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, dial Dialer) 
 	return errors.Join(runErr, shutdownErr)
 }
 
-func newHTTPHandler(health *handler.Health, log *slog.Logger, metricSets ...*platformmetrics.Set) http.Handler {
-	metricSet := platformmetrics.New("service-notification")
-	if len(metricSets) > 0 && metricSets[0] != nil {
-		metricSet = metricSets[0]
-	}
+func newHTTPHandler(health map[string]func(context.Context) error, log *slog.Logger, metricSet *platformmetrics.Set) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", health.Health)
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		httpx.Health(w, r, health, nil)
+	})
 	mux.Handle("GET /metrics", metricSet.Handler())
 	return otelhttp.NewHandler(middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(mux))), "http.server")
 }
 
-func newHealth(conn Conn, ch Channel, consumer *handler.Consumer) *handler.Health {
-	return handler.NewHealth(map[string]func(context.Context) error{
+func healthDependencies(conn Conn, ch Channel, consumer *handler.Consumer) map[string]func(context.Context) error {
+	return map[string]func(context.Context) error{
 		"rabbitmq": func(context.Context) error {
 			if conn.IsClosed() {
 				return errors.New("rabbitmq connection closed")
@@ -147,7 +146,7 @@ func newHealth(conn Conn, ch Channel, consumer *handler.Consumer) *handler.Healt
 			}
 			return nil
 		},
-	})
+	}
 }
 
 // NewServer cria o servidor HTTP com timeouts explícitos.

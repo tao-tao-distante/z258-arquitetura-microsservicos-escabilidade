@@ -46,7 +46,7 @@ consumidor ativo. Qualquer uma falsa resulta em `503`.
 ### Consumo de uma entrega
 
 1. Extrai o contexto de tracing dos headers AMQP (W3C).
-2. Lê `x-correlation-id` dos headers. Se não for UUID válido, gera um novo.
+2. Lê `x-correlation-id` dos headers. Se não for UUID v4 válido, gera um novo.
    O ID entra no `context.Context` e em todos os logs.
 3. Decodifica o corpo como `TaskCreatedEvent`.
 4. Valida o evento: `task_id > 0` e `title` não vazio após `trim`.

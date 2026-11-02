@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-notification/internal/handler"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/httpx"
 )
 
 func TestReadinessRequiresActiveConsumerAndOpenRabbitMQ(t *testing.T) {
@@ -33,7 +34,7 @@ func TestReadinessRequiresActiveConsumerAndOpenRabbitMQ(t *testing.T) {
 			deliveries := make(chan amqp.Delivery)
 			ch := &fakeChannel{deliveries: deliveries, closed: tt.channelDown}
 			conn := &fakeConn{ch: ch, closed: tt.connectionDown}
-			consumer := handler.NewConsumer(ch, slog.Default())
+			consumer := handler.NewConsumer(ch, slog.Default(), &fakeCounter{})
 			ctx, cancel := context.WithCancel(context.Background())
 			if tt.startConsumer {
 				done := make(chan error, 1)
@@ -48,7 +49,7 @@ func TestReadinessRequiresActiveConsumerAndOpenRabbitMQ(t *testing.T) {
 			}
 
 			recorder := httptest.NewRecorder()
-			newHealth(conn, ch, consumer).Health(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+			httpx.Health(recorder, httptest.NewRequest(http.MethodGet, "/health", nil), healthDependencies(conn, ch, consumer), nil)
 			require.Equal(t, tt.wantStatus, recorder.Code)
 			require.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 		})

@@ -6,20 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 	"sync/atomic"
 
-	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-notification/internal/domain"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/broker"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
-	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/httpx"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -43,16 +39,8 @@ type Consumer struct {
 
 type counter interface{ Inc(...string) }
 
-type noopCounter struct{}
-
-func (noopCounter) Inc(...string) {}
-
-// NewConsumer cria o consumidor com o canal e o logger informados.
-func NewConsumer(ch Channel, log *slog.Logger, counters ...counter) *Consumer {
-	metrics := counter(noopCounter{})
-	if len(counters) > 0 && counters[0] != nil {
-		metrics = counters[0]
-	}
+// NewConsumer cria o consumidor com suas dependências.
+func NewConsumer(ch Channel, log *slog.Logger, metrics counter) *Consumer {
 	return &Consumer{ch: ch, log: log, metrics: metrics}
 }
 
@@ -70,6 +58,9 @@ func (c *Consumer) Start(ctx context.Context) error {
 	}
 	c.active.Store(true)
 	defer c.active.Store(false)
+	log := logger.WithContext(ctx, c.log)
+	log.InfoContext(ctx, "consumer_started", "queue", broker.Queue)
+	defer log.InfoContext(ctx, "consumer_stopped", "queue", broker.Queue)
 	for {
 		select {
 		case <-ctx.Done():
@@ -91,7 +82,7 @@ func (c *Consumer) Active() bool {
 }
 
 func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
-	ctx := otel.GetTextMapPropagator().Extract(context.Background(), amqpHeaderCarrier(delivery.Headers))
+	ctx := otel.GetTextMapPropagator().Extract(context.Background(), broker.HeaderCarrier(delivery.Headers))
 	ctx, span := otel.Tracer("service-notification/consumer").Start(ctx, "task.created consume",
 		trace.WithSpanKind(trace.SpanKindConsumer))
 	defer func() {
@@ -103,7 +94,7 @@ func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 	}()
 
 	cid, _ := delivery.Headers[broker.CorrelationIDHeader].(string)
-	if _, parseErr := uuid.Parse(cid); parseErr != nil {
+	if !correlation.ValidID(cid) {
 		cid = correlation.NewID()
 	}
 	ctx = correlation.NewContext(ctx, cid)
@@ -133,46 +124,4 @@ func (c *Consumer) handle(delivery amqp.Delivery) (err error) {
 	}
 	c.metrics.Inc("acked")
 	return nil
-}
-
-type amqpHeaderCarrier amqp.Table
-
-// Get busca a chave no header AMQP sem diferenciar maiúsculas de minúsculas.
-func (c amqpHeaderCarrier) Get(key string) string {
-	for header, value := range c {
-		if strings.EqualFold(header, key) {
-			text, _ := value.(string)
-			return text
-		}
-	}
-	return ""
-}
-
-// Set grava um valor textual no header AMQP.
-func (c amqpHeaderCarrier) Set(key, value string) { c[key] = value }
-
-// Keys lista as chaves presentes no header AMQP.
-func (c amqpHeaderCarrier) Keys() []string {
-	keys := make([]string, 0, len(c))
-	for key := range c {
-		keys = append(keys, key)
-	}
-	return keys
-}
-
-var _ propagation.TextMapCarrier = amqpHeaderCarrier{}
-
-// Health expõe o endpoint de saúde do service-notification.
-type Health struct {
-	deps map[string]func(context.Context) error
-}
-
-// NewHealth cria o handler de saúde com as checagens de dependência.
-func NewHealth(deps map[string]func(context.Context) error) *Health {
-	return &Health{deps: deps}
-}
-
-// Health responde o estado do processo e do RabbitMQ.
-func (h *Health) Health(w http.ResponseWriter, r *http.Request) {
-	httpx.Health(w, r, h.deps, nil)
 }

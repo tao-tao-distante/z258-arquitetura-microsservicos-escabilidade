@@ -35,6 +35,7 @@ type fakeChannel struct {
 	bindN        int
 	prefetch     int
 	qosErr       error
+	started      chan struct{}
 }
 
 func (f *fakeChannel) fail(stage string) error {
@@ -68,6 +69,9 @@ func (f *fakeChannel) QueueBind(name, key, exchange string, noWait bool, args am
 
 func (f *fakeChannel) Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp.Table) (<-chan amqp.Delivery, error) {
 	f.consumeCalls++
+	if f.started != nil {
+		close(f.started)
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -103,6 +107,10 @@ func (f *fakeAck) Reject(tag uint64, requeue bool) error {
 	return nil
 }
 
+func newTestConsumer(ch Channel, log *slog.Logger) *Consumer {
+	return NewConsumer(ch, log, &fakeCounter{})
+}
+
 func TestStartProcessesValidEvent(t *testing.T) {
 	ch := &fakeChannel{deliveries: make(chan amqp.Delivery, 1)}
 	ack := &fakeAck{}
@@ -115,7 +123,7 @@ func TestStartProcessesValidEvent(t *testing.T) {
 
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, nil))
-	c := NewConsumer(ch, log)
+	c := newTestConsumer(ch, log)
 	err := c.Start(context.Background())
 	require.ErrorContains(t, err, "delivery channel closed")
 	require.Equal(t, 1, ack.acked)
@@ -130,7 +138,7 @@ func TestStartInvalidEvent(t *testing.T) {
 	close(ch.deliveries)
 
 	var buf bytes.Buffer
-	c := NewConsumer(ch, slog.New(slog.NewJSONHandler(&buf, nil)))
+	c := newTestConsumer(ch, slog.New(slog.NewJSONHandler(&buf, nil)))
 	require.ErrorContains(t, c.Start(context.Background()), "delivery channel closed")
 	require.Equal(t, 1, ack.nacked)
 	require.False(t, ack.requeue)
@@ -138,14 +146,14 @@ func TestStartInvalidEvent(t *testing.T) {
 }
 
 func TestStartConsumeError(t *testing.T) {
-	c := NewConsumer(&fakeChannel{err: errors.New("boom")}, slog.Default())
+	c := newTestConsumer(&fakeChannel{err: errors.New("boom")}, slog.Default())
 	require.Error(t, c.Start(context.Background()))
 }
 
 func TestStartDeclaresTopologyBeforeConsume(t *testing.T) {
 	ch := &fakeChannel{deliveries: make(chan amqp.Delivery)}
 	close(ch.deliveries)
-	require.ErrorContains(t, NewConsumer(ch, slog.Default()).Start(context.Background()), "delivery channel closed")
+	require.ErrorContains(t, newTestConsumer(ch, slog.Default()).Start(context.Background()), "delivery channel closed")
 
 	require.Equal(t, []string{"tasks.dlx", "tasks"}, ch.exchanges)
 	require.Equal(t, []string{"task.events.dlq", "task.events"}, ch.queues)
@@ -157,7 +165,7 @@ func TestStartDeclaresTopologyBeforeConsume(t *testing.T) {
 
 func TestStartDeclareError(t *testing.T) {
 	ch := &fakeChannel{deliveries: make(chan amqp.Delivery), declareErr: errors.New("boom")}
-	err := NewConsumer(ch, slog.Default()).Start(context.Background())
+	err := newTestConsumer(ch, slog.Default()).Start(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "declare")
 	require.Zero(t, ch.consumeCalls)
@@ -167,7 +175,7 @@ func TestStartSetupStagesFail(t *testing.T) {
 	for _, stage := range []string{"exchange1", "queue1", "bind1", "exchange2", "queue2", "bind2"} {
 		t.Run(stage, func(t *testing.T) {
 			ch := &fakeChannel{deliveries: make(chan amqp.Delivery), failAt: stage}
-			err := NewConsumer(ch, slog.Default()).Start(context.Background())
+			err := newTestConsumer(ch, slog.Default()).Start(context.Background())
 			require.Error(t, err)
 			require.Zero(t, ch.consumeCalls)
 		})
@@ -178,13 +186,13 @@ func TestStartContextCanceled(t *testing.T) {
 	ch := &fakeChannel{deliveries: make(chan amqp.Delivery)}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	require.NoError(t, NewConsumer(ch, slog.Default()).Start(ctx))
+	require.NoError(t, newTestConsumer(ch, slog.Default()).Start(ctx))
 }
 
 func TestStartClosedChannel(t *testing.T) {
 	ch := &fakeChannel{deliveries: make(chan amqp.Delivery)}
 	close(ch.deliveries)
-	require.ErrorContains(t, NewConsumer(ch, slog.Default()).Start(context.Background()), "delivery channel closed")
+	require.ErrorContains(t, newTestConsumer(ch, slog.Default()).Start(context.Background()), "delivery channel closed")
 }
 
 func TestStartInvalidCorrelationIDGeneratesUUID(t *testing.T) {
@@ -192,18 +200,23 @@ func TestStartInvalidCorrelationIDGeneratesUUID(t *testing.T) {
 	ack := &fakeAck{}
 	ch.deliveries <- amqp.Delivery{
 		Acknowledger: ack,
-		Headers:      amqp.Table{broker.CorrelationIDHeader: "not-a-uuid"},
+		Headers:      amqp.Table{broker.CorrelationIDHeader: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"},
 		Body:         []byte(`{"task_id":2,"title":"task"}`),
 	}
 	close(ch.deliveries)
 	var buf bytes.Buffer
-	require.Error(t, NewConsumer(ch, slog.New(slog.NewJSONHandler(&buf, nil))).Start(context.Background()))
+	require.Error(t, newTestConsumer(ch, slog.New(slog.NewJSONHandler(&buf, nil))).Start(context.Background()))
 	require.Equal(t, 1, ack.acked)
 
 	var entry map[string]any
-	require.NoError(t, json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &entry))
-	_, err := uuid.Parse(entry["correlation_id"].(string))
+	for _, line := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
+		if bytes.Contains(line, []byte(`"msg":"notification_received"`)) {
+			require.NoError(t, json.Unmarshal(line, &entry))
+		}
+	}
+	parsed, err := uuid.Parse(entry["correlation_id"].(string))
 	require.NoError(t, err)
+	require.Equal(t, uuid.Version(4), parsed.Version())
 }
 
 func TestStartRejectsSemanticallyInvalidEvents(t *testing.T) {
@@ -217,7 +230,7 @@ func TestStartRejectsSemanticallyInvalidEvents(t *testing.T) {
 			ch.deliveries <- amqp.Delivery{Acknowledger: ack, Body: []byte(body)}
 			close(ch.deliveries)
 
-			require.Error(t, NewConsumer(ch, slog.Default()).Start(context.Background()))
+			require.Error(t, newTestConsumer(ch, slog.Default()).Start(context.Background()))
 			require.Equal(t, 1, ack.nacked)
 			require.Zero(t, ack.acked)
 		})
@@ -234,7 +247,7 @@ func TestStartReturnsAckAndNackErrors(t *testing.T) {
 			ch := &fakeChannel{deliveries: make(chan amqp.Delivery, 1)}
 			ch.deliveries <- amqp.Delivery{Acknowledger: &fakeAck{err: errors.New("confirm failed")}, Body: []byte(body)}
 
-			err := NewConsumer(ch, slog.Default()).Start(context.Background())
+			err := newTestConsumer(ch, slog.Default()).Start(context.Background())
 			if name == "ack" {
 				require.ErrorContains(t, err, "ack delivery")
 			} else {
@@ -246,14 +259,14 @@ func TestStartReturnsAckAndNackErrors(t *testing.T) {
 
 func TestStartReturnsQosError(t *testing.T) {
 	ch := &fakeChannel{qosErr: errors.New("qos failed")}
-	require.ErrorContains(t, NewConsumer(ch, slog.Default()).Start(context.Background()), "set qos")
+	require.ErrorContains(t, newTestConsumer(ch, slog.Default()).Start(context.Background()), "set qos")
 	require.Zero(t, ch.consumeCalls)
 }
 
 func TestConsumerActiveOnlyWhileConsuming(t *testing.T) {
 	deliveries := make(chan amqp.Delivery)
 	ch := &fakeChannel{deliveries: deliveries}
-	consumer := NewConsumer(ch, slog.Default())
+	consumer := newTestConsumer(ch, slog.Default())
 	done := make(chan error, 1)
 	go func() { done <- consumer.Start(context.Background()) }()
 
@@ -285,7 +298,7 @@ func TestConsumerExtractsW3CTraceContext(t *testing.T) {
 		Body: []byte(`{"task_id":1,"title":"task"}`),
 	}
 	close(ch.deliveries)
-	require.Error(t, NewConsumer(ch, slog.Default()).Start(context.Background()))
+	require.Error(t, newTestConsumer(ch, slog.Default()).Start(context.Background()))
 
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
@@ -297,9 +310,23 @@ func TestConsumerExtractsW3CTraceContext(t *testing.T) {
 }
 
 func TestAMQPHeaderCarrier(t *testing.T) {
-	carrier := amqpHeaderCarrier{}
+	carrier := broker.HeaderCarrier{}
 	carrier.Set("traceparent", "value")
 	require.Equal(t, "value", carrier.Get("TraceParent"))
 	require.Empty(t, carrier.Get("tracestate"))
 	require.Equal(t, []string{"traceparent"}, carrier.Keys())
+}
+
+func TestConsumerLogsLifecycle(t *testing.T) {
+	ch := &fakeChannel{deliveries: make(chan amqp.Delivery), started: make(chan struct{})}
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- newTestConsumer(ch, log).Start(ctx) }()
+	<-ch.started
+	cancel()
+	require.NoError(t, <-done)
+	require.Contains(t, buf.String(), `"msg":"consumer_started"`)
+	require.Contains(t, buf.String(), `"msg":"consumer_stopped"`)
 }
