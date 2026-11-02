@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,7 +30,7 @@ func TestAuthMetricsRecordOperationOutcome(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			counter := &fakeCounter{}
-			h := New(tt.service, nil).WithAuthMetrics(counter)
+			h := New(tt.service, nil, slog.Default(), counter, testSecret)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, tt.path, bytes.NewBufferString(`{"email":"a@b.com","password":"password"}`))
 			h.Routes().ServeHTTP(rec, req)
@@ -42,7 +43,7 @@ func TestAuthMetricsRecordOperationOutcome(t *testing.T) {
 
 func TestAuthMetricsRecordRateLimitedOutcome(t *testing.T) {
 	counter := &fakeCounter{}
-	h := New(&fakeService{user: &domain.User{ID: 1}, token: "token"}, nil).WithAuthMetrics(counter)
+	h := New(&fakeService{user: &domain.User{ID: 1}, token: "token"}, nil, slog.Default(), counter, testSecret)
 
 	for range 11 {
 		rec := httptest.NewRecorder()

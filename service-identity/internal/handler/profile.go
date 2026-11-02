@@ -7,6 +7,7 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-identity/internal/domain"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/auth"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/httpx"
+	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/logger"
 )
 
 type profileResponse struct {
@@ -75,6 +76,7 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.Inc("update_profile", "success")
+	logger.WithContext(r.Context(), h.log).InfoContext(r.Context(), "profile_updated", "user_id", uid)
 	httpx.WriteJSON(w, http.StatusOK, toProfile(user))
 }
 
@@ -106,6 +108,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		h.writeProfileError(w, r, "change_password", err)
 	default:
 		h.metrics.Inc("change_password", "success")
+		logger.WithContext(r.Context(), h.log).InfoContext(r.Context(), "password_changed", "user_id", uid)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

@@ -24,6 +24,10 @@ type fakeService struct {
 	gotCurrent, gotNext string
 }
 
+func newTestHandler(svc AuthService, deps map[string]func(context.Context) error) *Handler {
+	return New(svc, deps, slog.Default(), &fakeCounter{}, testSecret)
+}
+
 func (f *fakeService) Register(ctx context.Context, email, password string) (*domain.User, string, error) {
 	return f.user, f.token, f.err
 }
@@ -33,7 +37,7 @@ func (f *fakeService) Login(ctx context.Context, email, password string) (*domai
 }
 
 func TestRegisterSuccess(t *testing.T) {
-	h := New(&fakeService{user: &domain.User{ID: 1, Email: "a@b.com"}, token: "tok"}, nil)
+	h := newTestHandler(&fakeService{user: &domain.User{ID: 1, Email: "a@b.com"}, token: "tok"}, nil)
 	body := bytes.NewBufferString(`{"email":"a@b.com","password":"pw"}`)
 	rec := httptest.NewRecorder()
 	h.Register(rec, httptest.NewRequest(http.MethodPost, "/register", body))
@@ -42,42 +46,42 @@ func TestRegisterSuccess(t *testing.T) {
 }
 
 func TestRegisterInvalidJSON(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Register(rec, httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(`{`)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestRegisterMissingFields(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Register(rec, httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(`{"email":"a@b.com"}`)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestRegisterEmailTaken(t *testing.T) {
-	h := New(&fakeService{err: domain.ErrEmailTaken}, nil)
+	h := newTestHandler(&fakeService{err: domain.ErrEmailTaken}, nil)
 	rec := httptest.NewRecorder()
 	h.Register(rec, httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(`{"email":"a@b.com","password":"pw"}`)))
 	require.Equal(t, http.StatusConflict, rec.Code)
 }
 
 func TestRegisterInternalError(t *testing.T) {
-	h := New(&fakeService{err: errors.New("boom")}, nil)
+	h := newTestHandler(&fakeService{err: errors.New("boom")}, nil)
 	rec := httptest.NewRecorder()
 	h.Register(rec, httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(`{"email":"a@b.com","password":"pw"}`)))
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestRegisterInvalidInput(t *testing.T) {
-	h := New(&fakeService{err: domain.ErrInvalidInput}, nil)
+	h := newTestHandler(&fakeService{err: domain.ErrInvalidInput}, nil)
 	rec := httptest.NewRecorder()
 	h.Register(rec, httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(`{"email":"bad","password":"password"}`)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestLoginSuccess(t *testing.T) {
-	h := New(&fakeService{user: &domain.User{ID: 1, Email: "a@b.com"}, token: "tok"}, nil)
+	h := newTestHandler(&fakeService{user: &domain.User{ID: 1, Email: "a@b.com"}, token: "tok"}, nil)
 	rec := httptest.NewRecorder()
 	h.Login(rec, httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"a@b.com","password":"pw"}`)))
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -85,42 +89,42 @@ func TestLoginSuccess(t *testing.T) {
 }
 
 func TestLoginInvalidJSON(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Login(rec, httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{`)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestLoginMissingFields(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Login(rec, httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"a@b.com"}`)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestLoginInvalidCredentials(t *testing.T) {
-	h := New(&fakeService{err: domain.ErrInvalidCredentials}, nil)
+	h := newTestHandler(&fakeService{err: domain.ErrInvalidCredentials}, nil)
 	rec := httptest.NewRecorder()
 	h.Login(rec, httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"a@b.com","password":"pw"}`)))
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 func TestLoginInternalError(t *testing.T) {
-	h := New(&fakeService{err: errors.New("boom")}, nil)
+	h := newTestHandler(&fakeService{err: errors.New("boom")}, nil)
 	rec := httptest.NewRecorder()
 	h.Login(rec, httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"a@b.com","password":"pw"}`)))
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestLoginInvalidInput(t *testing.T) {
-	h := New(&fakeService{err: domain.ErrInvalidInput}, nil)
+	h := newTestHandler(&fakeService{err: domain.ErrInvalidInput}, nil)
 	rec := httptest.NewRecorder()
 	h.Login(rec, httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"bad","password":"password"}`)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHealthOK(t *testing.T) {
-	h := New(&fakeService{}, map[string]func(context.Context) error{
+	h := newTestHandler(&fakeService{}, map[string]func(context.Context) error{
 		"postgres": func(context.Context) error { return nil },
 	})
 	rec := httptest.NewRecorder()
@@ -131,7 +135,7 @@ func TestHealthOK(t *testing.T) {
 }
 
 func TestHealthDegraded(t *testing.T) {
-	h := New(&fakeService{}, map[string]func(context.Context) error{
+	h := newTestHandler(&fakeService{}, map[string]func(context.Context) error{
 		"postgres": func(context.Context) error { return errors.New("down") },
 	})
 	rec := httptest.NewRecorder()
@@ -141,14 +145,14 @@ func TestHealthDegraded(t *testing.T) {
 }
 
 func TestRoutes(t *testing.T) {
-	h := New(&fakeService{user: &domain.User{ID: 1, Email: "a@b.com"}, token: "tok"}, nil)
+	h := newTestHandler(&fakeService{user: &domain.User{ID: 1, Email: "a@b.com"}, token: "tok"}, nil)
 	rec := httptest.NewRecorder()
 	h.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestRoutesRejectsWrongMethods(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	for _, path := range []string{"/register", "/login"} {
 		rec := httptest.NewRecorder()
 		h.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -157,7 +161,7 @@ func TestRoutesRejectsWrongMethods(t *testing.T) {
 }
 
 func TestRegisterRejectsOversizedPayload(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	body := append([]byte(`{"email":"a@b.com","password":"`), bytes.Repeat([]byte("x"), maxPayloadBytes)...)
 	body = append(body, []byte(`"}`)...)
 	rec := httptest.NewRecorder()
@@ -166,7 +170,7 @@ func TestRegisterRejectsOversizedPayload(t *testing.T) {
 }
 
 func TestLoginRejectsTrailingJSON(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"email":"a@b.com","password":"password"}{}`)
 	h.Login(rec, httptest.NewRequest(http.MethodPost, "/login", body))
@@ -176,7 +180,7 @@ func TestLoginRejectsTrailingJSON(t *testing.T) {
 func TestInternalErrorLoggedOnceWithCorrelationID(t *testing.T) {
 	var logs bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logs, nil))
-	h := New(&fakeService{err: errors.New("boom")}, nil, log)
+	h := New(&fakeService{err: errors.New("boom")}, nil, log, &fakeCounter{}, testSecret)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"a@b.com","password":"password"}`))
 	const correlationID = "646a4ca0-94d8-4f4a-b0f0-31fb0ac7b31d"

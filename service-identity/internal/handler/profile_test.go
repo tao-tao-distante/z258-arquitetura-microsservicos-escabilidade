@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -68,7 +69,7 @@ func TestGetProfile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			counter := &fakeCounter{}
-			h := New(tt.svc, nil).WithAuthMetrics(counter).WithJWT(testSecret)
+			h := New(tt.svc, nil, slog.Default(), counter, testSecret)
 			rec := serveProfile(t, h, http.MethodGet, "/me", "", tt.authorized)
 			require.Equal(t, tt.wantCode, rec.Code)
 			if tt.wantBody != "" {
@@ -98,7 +99,7 @@ func TestUpdateProfile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			counter := &fakeCounter{}
-			h := New(tt.svc, nil).WithAuthMetrics(counter).WithJWT(testSecret)
+			h := New(tt.svc, nil, slog.Default(), counter, testSecret)
 			rec := serveProfile(t, h, http.MethodPatch, "/me", tt.body, true)
 			require.Equal(t, tt.wantCode, rec.Code)
 			if tt.wantCode == http.StatusOK {
@@ -111,7 +112,7 @@ func TestUpdateProfile(t *testing.T) {
 }
 
 func TestUpdateProfileRejectsOversizedPayload(t *testing.T) {
-	h := New(&fakeService{}, nil).WithJWT(testSecret)
+	h := newTestHandler(&fakeService{}, nil)
 	body := `{"name":"` + string(bytes.Repeat([]byte("x"), maxPayloadBytes)) + `"}`
 	rec := serveProfile(t, h, http.MethodPatch, "/me", body, true)
 	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
@@ -137,7 +138,7 @@ func TestChangePassword(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			counter := &fakeCounter{}
-			h := New(tt.svc, nil).WithAuthMetrics(counter).WithJWT(testSecret)
+			h := New(tt.svc, nil, slog.Default(), counter, testSecret)
 			rec := serveProfile(t, h, http.MethodPut, "/me/password", tt.body, true)
 			require.Equal(t, tt.wantCode, rec.Code)
 			if tt.wantCode == http.StatusNoContent {
@@ -153,7 +154,7 @@ func TestChangePassword(t *testing.T) {
 
 func TestChangePasswordIsRateLimited(t *testing.T) {
 	counter := &fakeCounter{}
-	h := New(&fakeService{}, nil).WithAuthMetrics(counter).WithJWT(testSecret)
+	h := New(&fakeService{}, nil, slog.Default(), counter, testSecret)
 	var rec *httptest.ResponseRecorder
 	for range 11 {
 		req := httptest.NewRequest(http.MethodPut, "/me/password", bytes.NewBufferString(`{"current_password":"password","new_password":"new-password"}`))
@@ -167,13 +168,13 @@ func TestChangePasswordIsRateLimited(t *testing.T) {
 }
 
 func TestProfileRoutesFailClosedWithoutSecret(t *testing.T) {
-	h := New(&fakeService{user: &domain.User{ID: 42}}, nil).WithJWT("")
+	h := New(&fakeService{user: &domain.User{ID: 42}}, nil, slog.Default(), &fakeCounter{}, "")
 	rec := serveProfile(t, h, http.MethodGet, "/me", "", true)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 func TestProfileHandlersRejectMissingClaims(t *testing.T) {
-	h := New(&fakeService{user: &domain.User{ID: 42}}, nil)
+	h := newTestHandler(&fakeService{user: &domain.User{ID: 42}}, nil)
 	for _, handle := range []http.HandlerFunc{h.GetProfile, h.UpdateProfile, h.ChangePassword} {
 		rec := httptest.NewRecorder()
 		handle(rec, httptest.NewRequest(http.MethodGet, "/me", bytes.NewBufferString(`{}`)))
@@ -182,7 +183,7 @@ func TestProfileHandlersRejectMissingClaims(t *testing.T) {
 }
 
 func TestLoginResponseIncludesName(t *testing.T) {
-	h := New(&fakeService{user: &domain.User{ID: 1, Email: "a@b.com", Name: "Ana"}, token: "tok"}, nil)
+	h := newTestHandler(&fakeService{user: &domain.User{ID: 1, Email: "a@b.com", Name: "Ana"}, token: "tok"}, nil)
 	rec := httptest.NewRecorder()
 	h.Login(rec, httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"a@b.com","password":"password"}`)))
 	require.JSONEq(t, `{"id":1,"email":"a@b.com","name":"Ana","token":"tok"}`, rec.Body.String())
