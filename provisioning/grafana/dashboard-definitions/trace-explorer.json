@@ -1,0 +1,247 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {"title": "Visão de Negócio", "url": "/d/task-manager-business", "type": "link", "icon": "external link", "keepTime": true, "includeVars": false, "targetBlank": false},
+    {"title": "Backends Go", "url": "/d/task-manager-backends", "type": "link", "icon": "external link", "keepTime": true, "includeVars": false, "targetBlank": false},
+    {"title": "RabbitMQ", "url": "/d/task-manager-rabbitmq", "type": "link", "icon": "external link", "keepTime": true, "includeVars": false, "targetBlank": false}
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Investigação ponta a ponta",
+      "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+      "options": {
+        "mode": "markdown",
+        "content": "### Um painel, três sinais\n\nUse **Serviço** e período para diagnóstico geral. Para um request, cole o valor de `X-Trace-ID` em **Trace ID**: Tempo mostra spans e Loki mostra logs da mesma execução. Métricas Prometheus mostram contexto agregado do período; `trace_id` não é label para evitar alta cardinalidade."
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Serviços disponíveis",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 4},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 2}, {"color": "green", "value": 3}]}}, "overrides": []},
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value_and_name", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(up{job=~\"service-.*\"})", "instant": true, "legendFormat": "serviços", "range": false, "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Requisições no período",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 4},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []},
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value_and_name", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(increase(task_manager_http_requests_total{service=~\"$service\"}[$__range]))", "instant": true, "legendFormat": "requests", "range": false, "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Erros HTTP 5xx",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 4},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value_and_name", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(increase(task_manager_http_requests_total{service=~\"$service\",status=~\"5..\"}[$__range]))", "instant": true, "legendFormat": "5xx", "range": false, "refId": "A"}]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Mensagens na DLQ",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 4},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value_and_name", "wideLayout": true},
+      "targets": [{"editorMode": "code", "expr": "sum(rabbitmq_queue_messages{queue=\"task.events.dlq\"})", "instant": true, "legendFormat": "DLQ", "range": false, "refId": "A"}]
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Métricas HTTP",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 8},
+      "panels": []
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Taxa HTTP por serviço",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 9},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "req/s", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 15, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}}, "unit": "reqps"}, "overrides": []},
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "sum by (service) (rate(task_manager_http_requests_total{service=~\"$service\"}[$__rate_interval]))", "legendFormat": "{{service}}", "range": true, "refId": "A"}]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Latência HTTP p95 e p99",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 9},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "segundos", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 15, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}}, "unit": "s"}, "overrides": []},
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (service, le) (rate(task_manager_http_request_duration_seconds_bucket{service=~\"$service\"}[$__rate_interval])))", "legendFormat": "p95 {{service}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "histogram_quantile(0.99, sum by (service, le) (rate(task_manager_http_request_duration_seconds_bucket{service=~\"$service\"}[$__rate_interval])))", "legendFormat": "p99 {{service}}", "range": true, "refId": "B"}
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Taxa de erros HTTP 5xx",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 17},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "%", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 18, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "expr": "(sum by (service) (rate(task_manager_http_requests_total{service=~\"$service\",status=~\"5..\"}[$__rate_interval])) or 0 * sum by (service) (rate(task_manager_http_requests_total{service=~\"$service\"}[$__rate_interval]))) / clamp_min(sum by (service) (rate(task_manager_http_requests_total{service=~\"$service\"}[$__rate_interval])), 0.000001)", "legendFormat": "{{service}}", "range": true, "refId": "A"}]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Operações de negócio",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 17},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "eventos/s", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 15, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}}, "unit": "ops"}, "overrides": []},
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum by (operation, outcome) (rate(task_manager_identity_auth_attempts_total[$__rate_interval]))", "legendFormat": "auth {{operation}} / {{outcome}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum by (operation, outcome) (rate(task_manager_task_operations_total[$__rate_interval]))", "legendFormat": "task {{operation}} / {{outcome}}", "range": true, "refId": "B"}
+      ]
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Mensageria",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 25},
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Profundidade das filas",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 26},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "mensagens", "axisPlacement": "auto", "drawStyle": "bars", "fillOpacity": 25, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}}, "unit": "short"}, "overrides": []},
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum by (queue) (rabbitmq_queue_messages_ready{queue=~\"task.events(.dlq)?\"})", "legendFormat": "ready {{queue}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum by (queue) (rabbitmq_queue_messages_unacked{queue=~\"task.events(.dlq)?\"})", "legendFormat": "unacked {{queue}}", "range": true, "refId": "B"}
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Outbox e consumo",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 26},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "eventos/s", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 15, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}}, "unit": "ops"}, "overrides": []},
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum by (outcome) (rate(task_manager_task_outbox_events_total[$__rate_interval]))", "legendFormat": "outbox {{outcome}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum by (outcome) (rate(task_manager_notification_events_total[$__rate_interval]))", "legendFormat": "notification {{outcome}}", "range": true, "refId": "B"}
+      ]
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Traces",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 34},
+      "panels": []
+    },
+    {
+      "id": 15,
+      "type": "traces",
+      "title": "Traces recentes do serviço",
+      "description": "Clique em um trace para inspecionar spans e abrir logs correlacionados.",
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 35},
+      "options": {"showHeader": true},
+      "targets": [{"refId": "A", "queryType": "traceql", "query": "{ resource.service.name =~ \"$service\" } with (most_recent=true)"}]
+    },
+    {
+      "id": 16,
+      "type": "traces",
+      "title": "Trace pesquisado",
+      "description": "Busca exata pelo campo Trace ID. Vazio não retorna trace.",
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 35},
+      "options": {"showHeader": true},
+      "targets": [{"refId": "A", "queryType": "traceql", "query": "{ trace:id = \"$trace_id\" }"}]
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Logs",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 45},
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "logs",
+      "title": "Logs do trace pesquisado",
+      "description": "Logs JSON filtrados pelo mesmo trace_id. Clique em Ver trace para voltar ao Tempo.",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 14, "w": 16, "x": 0, "y": 46},
+      "options": {"showTime": true, "showLabels": false, "showCommonLabels": false, "wrapLogMessage": true, "prettifyLogMessage": true, "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Ascending"},
+      "targets": [{"refId": "A", "queryType": "range", "editorMode": "code", "expr": "{service_name=~\"$service\"} | json | trace_id=\"$trace_id\""}]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Logs por serviço",
+      "description": "Linha temporal do trace pesquisado.",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 14, "w": 8, "x": 16, "y": 46},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "linhas", "axisPlacement": "auto", "drawStyle": "bars", "fillOpacity": 30, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}}, "unit": "short"}, "overrides": []},
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"refId": "A", "queryType": "range", "editorMode": "code", "expr": "sum by (service_name) (count_over_time({service_name=~\"$service\"} | json | trace_id=\"$trace_id\" [$__auto]))", "legendFormat": "{{service_name}}"}]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["task-manager", "observabilidade", "tracing", "logs", "metrics", "tempo", "loki", "prometheus"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".+",
+        "current": {"selected": true, "text": "Todos", "value": "$__all"},
+        "hide": 0,
+        "includeAll": true,
+        "label": "Serviço",
+        "multi": false,
+        "name": "service",
+        "options": [
+          {"selected": true, "text": "Todos", "value": "$__all"},
+          {"selected": false, "text": "service-identity", "value": "service-identity"},
+          {"selected": false, "text": "service-task", "value": "service-task"},
+          {"selected": false, "text": "service-notification", "value": "service-notification"},
+          {"selected": false, "text": "frontend-edge", "value": "frontend-edge"}
+        ],
+        "query": "service-identity,service-task,service-notification,frontend-edge",
+        "type": "custom"
+      },
+      {
+        "current": {"selected": false, "text": "", "value": ""},
+        "label": "Trace ID",
+        "name": "trace_id",
+        "options": [{"selected": true, "text": "", "value": ""}],
+        "query": "",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {"from": "now-30m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Task Manager - Observabilidade Unificada",
+  "uid": "task-manager-observability",
+  "version": 1
+}

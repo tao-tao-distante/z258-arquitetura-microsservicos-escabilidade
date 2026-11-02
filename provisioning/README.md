@@ -26,7 +26,7 @@ provisioning
 ├── grafana
 │   ├── datasources/datasources.yml     Prometheus (default), Tempo e Loki com correlação
 │   ├── dashboards/providers.yml        provider de dashboards por arquivo
-│   ├── dashboard-definitions/*.json    três dashboards versionados
+│   ├── dashboard-definitions/*.json    quatro dashboards versionados
 │   ├── alerting/default.yml            provisionamento de alertas (vazio)
 │   └── plugins/default.yml             provisionamento de plugins (vazio)
 └── rabbitmq
@@ -141,6 +141,7 @@ Provider `task-manager` lê JSON de `/var/lib/grafana/dashboards`, pasta
 
 | Dashboard | Conteúdo |
 |---|---|
+| `trace-explorer.json` — *Task Manager - Observabilidade Unificada* | Resumo operacional, métricas HTTP e de mensageria, traces recentes, busca exata por `trace_id` e logs correlacionados. |
 | `backend-services.json` — *Task Manager - Backends Go* | Disponibilidade, taxa HTTP, erros 5xx, latência p95/p99, goroutines e memória. |
 | `business-overview.json` — *Task Manager - Visão de Negócio* | Cadastros, logins, tarefas criadas, eventos processados, resultados de auth/tarefas, outbox e consumo. |
 | `rabbitmq.json` — *Task Manager - RabbitMQ* | Conexões, canais, consumidores, profundidade de filas (incluindo DLQ), fluxo, uso do nó e alarmes. |

@@ -206,7 +206,9 @@ services:
   service-identity:
     build:
       context: .
-      dockerfile: service-identity/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: service-identity
     restart: unless-stopped
     init: true
     depends_on:
@@ -233,7 +235,9 @@ services:
   service-task:
     build:
       context: .
-      dockerfile: service-task/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: service-task
     restart: unless-stopped
     init: true
     depends_on:
@@ -264,7 +268,9 @@ services:
   service-notification:
     build:
       context: .
-      dockerfile: service-notification/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: service-notification
     restart: unless-stopped
     init: true
     depends_on:
