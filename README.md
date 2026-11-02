@@ -1,13 +1,5 @@
 # Task Manager System
 
-## Integrantes
-
-| Nome | Matrícula |
-|---|---|
-| Nome completo | 0000000 |
-| Nome completo | 0000000 |
-| Nome completo | 0000000 |
-
 ## Design
 
 Protótipo de interface no Figma: [Task Manager — Product UI — Angular](https://www.figma.com/design/30NGvSADIVJnbFmHP3rhx0/Task-Manager-%E2%80%94-Product-UI---Angular?node-id=7-2&m=dev)
