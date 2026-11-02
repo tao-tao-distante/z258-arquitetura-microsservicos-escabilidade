@@ -22,7 +22,7 @@ func main() {
 }
 
 func mainWithContext(ctx context.Context) int {
-	log := logger.New()
+	log := logger.New("service-task")
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -32,23 +32,23 @@ func mainWithContext(ctx context.Context) int {
 	}
 	cfg, err := config.Load()
 	if err != nil {
-		log.Error("invalid configuration", "error", err, "correlation_id", "")
+		log.Error("invalid configuration", "error", err)
 		return 1
 	}
 	shutdownTelemetry, _, err := telemetry.Setup(ctx, cfg.OTLPEndpoint, "service-task")
 	if err != nil {
-		log.Error("initialize telemetry", "error", err, "correlation_id", "")
+		log.Error("initialize telemetry", "error", err)
 		return 1
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := shutdownTelemetry(shutdownCtx); err != nil {
-			log.Error("shutdown telemetry", "error", err, "correlation_id", "")
+			log.Error("shutdown telemetry", "error", err)
 		}
 	}()
 	if err := app.Run(ctx, cfg, log, deps); err != nil {
-		log.Error("service stopped", "error", err, "correlation_id", "")
+		log.Error("service stopped", "error", err)
 		return 1
 	}
 	return 0

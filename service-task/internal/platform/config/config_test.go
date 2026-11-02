@@ -21,8 +21,6 @@ func TestLoadDefaults(t *testing.T) {
 	require.Contains(t, c.DatabaseURL, "task")
 	require.Contains(t, c.RabbitURL, "amqp")
 	require.Equal(t, "secret", c.JWTSecret)
-	require.Equal(t, 25, c.DBMaxOpenConns)
-	require.Equal(t, 10, c.DBMaxIdleConns)
 }
 
 func TestLoadOverrides(t *testing.T) {

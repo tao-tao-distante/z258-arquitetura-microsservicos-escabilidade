@@ -60,13 +60,12 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) (r
 	)
 	h := handler.New(svc, map[string]func(context.Context) error{
 		"postgres": db.PingContext,
-	}, log).WithAuthMetrics(authMetrics).WithJWT(cfg.JWTSecret)
+	}, log, authMetrics, cfg.JWTSecret)
 
 	routes := http.NewServeMux()
 	routes.Handle("GET /metrics", metricSet.Handler())
 	routes.Handle("/", h.Routes())
-	mux := middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(routes)))
-	mux = otelhttp.NewHandler(mux, "service-identity")
+	mux := otelhttp.NewHandler(middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(routes))), "service-identity")
 	srv := NewServer(cfg.Port, mux)
 	serve := deps.Serve
 	if serve == nil {

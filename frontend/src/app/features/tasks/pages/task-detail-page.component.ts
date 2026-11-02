@@ -8,7 +8,7 @@ import { PriorityBadgeComponent } from '../components/priority-badge.component';
 import { StatusBadgeComponent } from '../components/status-badge.component';
 import { TaskHistoryComponent } from '../components/task-history.component';
 import { STATUS_META, Task, TaskStatus } from '../models/task.model';
-import { formatDate, formatDateTime } from '../task.utils';
+import * as taskUtils from '../task.utils';
 import { TaskDataService } from '../services/task-data.service';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog.component';
 
@@ -64,7 +64,7 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
             <dt>PRAZO</dt>
             <dd class="due">
               @if (current.due_date) {
-                <span>{{ date(current.due_date) }}</span>
+                <span>{{ taskUtils.formatDate(current.due_date) }}</span>
                 <app-due-date [task]="current" />
               } @else {
                 <span class="muted">Sem prazo</span>
@@ -73,7 +73,7 @@ import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialo
           </div>
           <div>
             <dt>CRIADA EM</dt>
-            <dd>{{ dateTime(current.created_at) }}</dd>
+            <dd>{{ taskUtils.formatDateTime(current.created_at) }}</dd>
           </div>
           <div>
             <dt>IDENTIFICADOR</dt>
@@ -162,6 +162,7 @@ export class TaskDetailPageComponent implements OnInit {
   readonly pending = signal(false);
   readonly error = signal('');
   readonly confirmOpen = signal(false);
+  readonly taskUtils = taskUtils;
 
   ngOnInit(): void {
     const id = Number(this.route.snapshot.paramMap.get('id'));
@@ -182,14 +183,6 @@ export class TaskDetailPageComponent implements OnInit {
 
   meta(status: TaskStatus) {
     return STATUS_META[status];
-  }
-
-  date(iso: string): string {
-    return formatDate(iso);
-  }
-
-  dateTime(iso: string): string {
-    return formatDateTime(iso);
   }
 
   remove(): void {

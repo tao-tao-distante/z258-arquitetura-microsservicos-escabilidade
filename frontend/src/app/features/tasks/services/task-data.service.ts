@@ -2,7 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpParams, HttpResponse } from '@angular/common/http';
 import { EMPTY, expand, map, Observable, reduce } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { Task, TaskHistoryEntry, TaskMovePayload, TaskPayload } from '../models/task.model';
+import { Task, TaskHistoryEntry, TaskMovePayload, TaskMutationResponse, TaskPayload } from '../models/task.model';
 
 @Injectable({ providedIn: 'root' })
 export class TaskDataService {
@@ -28,15 +28,15 @@ export class TaskDataService {
       .pipe(map((response) => this.bodyForStatus(response, 200)));
   }
 
-  create(payload: TaskPayload): Observable<Task> {
+  create(payload: TaskPayload): Observable<TaskMutationResponse> {
     return this.http
-      .post<Task>(`${this.api}/tasks`, payload, { observe: 'response' })
+      .post<TaskMutationResponse>(`${this.api}/tasks`, payload, { observe: 'response' })
       .pipe(map((response) => this.bodyForStatus(response, 201)));
   }
 
-  update(id: number, payload: TaskPayload): Observable<Task> {
+  update(id: number, payload: TaskPayload): Observable<TaskMutationResponse> {
     return this.http
-      .put<Task>(`${this.api}/tasks/${id}`, payload, { observe: 'response' })
+      .put<TaskMutationResponse>(`${this.api}/tasks/${id}`, payload, { observe: 'response' })
       .pipe(map((response) => this.bodyForStatus(response, 200)));
   }
 

@@ -17,7 +17,7 @@ func (f *fakeCounter) Inc(labels ...string) { f.labels = append(f.labels, labels
 
 func TestTaskMetricsRecordCreateOutcome(t *testing.T) {
 	counter := &fakeCounter{}
-	h := New(&fakeService{task: &domain.Task{ID: 1, Title: "task"}}, nil).WithTaskMetrics(counter)
+	h := newTestHandlerWithCounter(&fakeService{task: &domain.Task{ID: 1, Title: "task"}}, nil, counter)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/tasks", bytes.NewBufferString(`{"title":"task"}`)).WithContext(ctxWithClaims())
 
@@ -44,7 +44,7 @@ func TestTaskMetricsRecordEveryBusinessOperation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			counter := &fakeCounter{}
-			h := New(tt.service, nil).WithTaskMetrics(counter)
+			h := newTestHandlerWithCounter(tt.service, nil, counter)
 			rec := httptest.NewRecorder()
 
 			tt.invoke(h, rec, tt.request)
@@ -56,10 +56,10 @@ func TestTaskMetricsRecordEveryBusinessOperation(t *testing.T) {
 
 func TestTaskMetricsRecordJWTRejection(t *testing.T) {
 	counter := &fakeCounter{}
-	h := New(&fakeService{}, nil).WithTaskMetrics(counter)
+	h := newTestHandlerWithCounter(&fakeService{}, nil, counter)
 	rec := httptest.NewRecorder()
 
-	h.Routes("secret").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/tasks", nil))
+	h.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/tasks", nil))
 
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	require.Equal(t, [][]string{{"list", "unauthorized"}}, counter.labels)

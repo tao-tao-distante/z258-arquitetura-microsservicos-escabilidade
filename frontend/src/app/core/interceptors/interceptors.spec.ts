@@ -3,7 +3,6 @@ import { provideHttpClientTesting, HttpTestingController } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { AuthService } from '../services/auth.service';
-import { correlationIdInterceptor } from './correlation-id.interceptor';
 import { jwtInterceptor } from './jwt.interceptor';
 
 describe('HTTP interceptors', () => {
@@ -14,7 +13,7 @@ describe('HTTP interceptors', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
-        provideHttpClient(withInterceptors([correlationIdInterceptor, jwtInterceptor])),
+        provideHttpClient(withInterceptors([jwtInterceptor])),
         provideHttpClientTesting(),
         { provide: AuthService, useValue: auth },
       ],
@@ -72,16 +71,14 @@ describe('HTTP interceptors', () => {
     expect(navigate).toHaveBeenCalledOnce();
   });
 
-  it('always supplies a UUID-shaped correlation ID when randomUUID is unavailable', () => {
+  it('leaves trace and correlation IDs for the edge proxy', () => {
     const http = TestBed.inject(HttpClient);
     const requests = TestBed.inject(HttpTestingController);
-    const original = crypto.randomUUID;
-    Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: undefined });
 
     http.get('/api/identity/health').subscribe();
-    const id = requests.expectOne('/api/identity/health').request.headers.get('x-correlation-id');
+    const request = requests.expectOne('/api/identity/health').request;
 
-    Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: original });
-    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(request.headers.has('x-correlation-id')).toBe(false);
+    expect(request.headers.has('traceparent')).toBe(false);
   });
 });

@@ -2,11 +2,16 @@
 
 ## Status
 
-Aceito.
+Substituído parcialmente pelo ADR-0014 para a exposição das APIs e o papel do NGINX.
 
 ## Data
 
 2026-10-28
+
+## Nota de atualização
+
+Somente o NGINX publica uma porta em todas as interfaces, `0.0.0.0:8081`. As APIs não publicam portas no host. Grafana
+em `127.0.0.1:3000` e RabbitMQ Management em `127.0.0.1:15672` são as únicas portas administrativas publicadas.
 
 ## Contexto
 
@@ -18,7 +23,7 @@ dados não persistentes para mensageria/observabilidade. Grafana também exigia 
 - Fixar versões completas das imagens declaradas no Compose.
 - Exigir segredos por interpolação `${VAR:?mensagem}` e fornecer apenas `.env.example` sem credenciais utilizáveis.
 - Substituir RabbitMQ `guest` por usuário configurável.
-- Publicar o frontend em todas as interfaces e vincular APIs/consoles de desenvolvimento a `127.0.0.1`.
+- Publicar o frontend em todas as interfaces, não publicar as APIs e vincular consoles administrativos a `127.0.0.1`.
 - Não publicar bancos, AMQP ou endpoints de telemetria.
 - Separar redes `edge`, `identity-data`, `task-data`, `messaging` e `telemetry`; marcar redes de dependências como
   internas.
@@ -42,4 +47,5 @@ dados não persistentes para mensageria/observabilidade. Grafana também exigia 
 ## Confirmação
 
 Executar as validações do README, inspecionar `docker compose config` e confirmar saúde com `docker compose ps`. Verificar
-que somente `8081` aceita conexões externas e que `8082`-`8084`, `3000` e `15672` estão em `127.0.0.1`.
+que somente `8081` aceita conexões externas, que as APIs não possuem bind no host e que `3000` e `15672` aceitam
+conexões somente por `127.0.0.1`.

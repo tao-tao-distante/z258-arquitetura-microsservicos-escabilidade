@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path"
 	"strconv"
+	"time"
 
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/domain"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/auth"
@@ -35,38 +36,23 @@ type Handler struct {
 	deps    map[string]func(context.Context) error
 	log     *slog.Logger
 	metrics counter
+	secret  string
 }
 
 type counter interface{ Inc(...string) }
 
-type noopCounter struct{}
-
-func (noopCounter) Inc(...string) {}
-
-// New cria o handler com o serviço, as checagens de dependência e o logger informados.
-func New(svc TaskService, deps map[string]func(context.Context) error, logs ...*slog.Logger) *Handler {
-	log := slog.Default()
-	if len(logs) > 0 && logs[0] != nil {
-		log = logs[0]
-	}
-	return &Handler{svc: svc, deps: deps, log: log, metrics: noopCounter{}}
-}
-
-// WithTaskMetrics habilita contagem das operações de tarefa.
-func (h *Handler) WithTaskMetrics(metrics counter) *Handler {
-	if metrics != nil {
-		h.metrics = metrics
-	}
-	return h
+// New cria o handler com suas dependências.
+func New(svc TaskService, deps map[string]func(context.Context) error, log *slog.Logger, metrics counter, secret string) *Handler {
+	return &Handler{svc: svc, deps: deps, log: log, metrics: metrics, secret: secret}
 }
 
 // Routes monta o mux com health público e rotas de tarefas protegidas por JWT.
-func (h *Handler) Routes(jwtSecret string) http.Handler {
+func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.Health)
 
 	protected := func(operation string, next http.Handler) http.Handler {
-		return auth.Middleware(jwtSecret, func(*http.Request) {
+		return auth.Middleware(h.secret, func(*http.Request) {
 			h.metrics.Inc(operation, "unauthorized")
 		})(next)
 	}
@@ -86,6 +72,30 @@ type taskPayload struct {
 	Status      string       `json:"status"`
 	Priority    string       `json:"priority"`
 	DueDate     *domain.Date `json:"due_date"`
+}
+
+type taskResponse struct {
+	ID          int64        `json:"id"`
+	Title       string       `json:"title"`
+	Description string       `json:"description"`
+	Status      string       `json:"status"`
+	Priority    string       `json:"priority"`
+	DueDate     *domain.Date `json:"due_date"`
+	Position    float64      `json:"position"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+}
+
+type taskMutationResponse struct {
+	ID int64 `json:"id"`
+}
+
+func newTaskResponse(task domain.Task) taskResponse {
+	return taskResponse{
+		ID: task.ID, Title: task.Title, Description: task.Description,
+		Status: task.Status, Priority: task.Priority, DueDate: task.DueDate,
+		Position: task.Position, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt,
+	}
 }
 
 func (p taskPayload) input() domain.TaskInput {
@@ -141,11 +151,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if tasks == nil {
-		tasks = []domain.Task{}
+	responses := make([]taskResponse, len(tasks))
+	for i, task := range tasks {
+		responses[i] = newTaskResponse(task)
 	}
 	h.metrics.Inc("list", "success")
-	httpx.WriteJSON(w, http.StatusOK, tasks)
+	httpx.WriteJSON(w, http.StatusOK, responses)
 }
 
 // Create cria uma tarefa para o usuário autenticado.
@@ -175,7 +186,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.Inc("create", "success")
-	httpx.WriteJSON(w, http.StatusCreated, task)
+	if task != nil {
+		platformlogger.WithContext(r.Context(), h.log).InfoContext(r.Context(), "task_created", "task_id", task.ID, "user_id", uid, "status", task.Status, "priority", task.Priority)
+	}
+	httpx.WriteJSON(w, http.StatusCreated, taskMutationResponse{ID: task.ID})
 }
 
 // Get devolve uma tarefa do usuário autenticado.
@@ -205,7 +219,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.Inc("get", "success")
-	httpx.WriteJSON(w, http.StatusOK, task)
+	httpx.WriteJSON(w, http.StatusOK, newTaskResponse(*task))
 }
 
 // Update atualiza uma tarefa do usuário autenticado.
@@ -246,7 +260,10 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.Inc("update", "success")
-	httpx.WriteJSON(w, http.StatusOK, task)
+	if task != nil {
+		platformlogger.WithContext(r.Context(), h.log).InfoContext(r.Context(), "task_updated", "task_id", task.ID, "user_id", uid, "status", task.Status, "priority", task.Priority)
+	}
+	httpx.WriteJSON(w, http.StatusOK, taskMutationResponse{ID: task.ID})
 }
 
 // Delete remove uma tarefa do usuário autenticado.
@@ -276,6 +293,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.Inc("delete", "success")
+	platformlogger.WithContext(r.Context(), h.log).InfoContext(r.Context(), "task_deleted", "task_id", id, "user_id", uid)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -321,7 +339,10 @@ func (h *Handler) Move(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal error")
 	default:
 		h.metrics.Inc("move", "success")
-		httpx.WriteJSON(w, http.StatusOK, task)
+		if task != nil {
+			platformlogger.WithContext(r.Context(), h.log).InfoContext(r.Context(), "task_moved", "task_id", task.ID, "user_id", uid, "status", task.Status, "position", task.Position)
+		}
+		httpx.WriteJSON(w, http.StatusOK, newTaskResponse(*task))
 	}
 }
 
@@ -423,7 +444,7 @@ func writePayloadError(w http.ResponseWriter, err error) {
 }
 
 func (h *Handler) logError(ctx context.Context, operation string, err error) {
-	platformlogger.WithCorrelation(ctx, h.log).ErrorContext(ctx, operation, "error", err)
+	platformlogger.WithContext(ctx, h.log).ErrorContext(ctx, operation, "error", err)
 }
 
 // Health responde o estado do serviço, do PostgreSQL e do RabbitMQ.

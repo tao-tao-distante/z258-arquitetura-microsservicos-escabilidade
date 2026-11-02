@@ -72,6 +72,40 @@ services:
     networks:
       - telemetry
 
+  loki:
+    image: grafana/loki:3.6.7
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    healthcheck:
+      test: ["CMD", "/usr/bin/loki", "-config.file=/etc/loki/config.yaml", "-verify-config"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - ./provisioning/loki/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    networks:
+      - telemetry
+
+  alloy:
+    image: grafana/alloy:v1.21.3
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    depends_on:
+      loki:
+        condition: service_healthy
+    volumes:
+      - ${DOCKER_ROOT_DIR:-/var/lib/docker}/containers:/var/lib/docker/containers:ro
+      - ./provisioning/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    networks:
+      - telemetry
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.164.0
     restart: unless-stopped
@@ -127,6 +161,8 @@ services:
         condition: service_healthy
       tempo:
         condition: service_healthy
+      loki:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/health"]
       interval: 15s
@@ -155,6 +191,8 @@ services:
         condition: service_healthy
       service-notification:
         condition: service_healthy
+      otel-collector:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/"]
       interval: 15s
@@ -163,15 +201,16 @@ services:
       start_period: 10s
     networks:
       - edge
+      - telemetry
 
   service-identity:
     build:
       context: .
-      dockerfile: service-identity/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: service-identity
     restart: unless-stopped
     init: true
-    ports:
-      - "127.0.0.1:8082:8080"
     depends_on:
       postgres-identity:
         condition: service_healthy
@@ -196,11 +235,11 @@ services:
   service-task:
     build:
       context: .
-      dockerfile: service-task/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: service-task
     restart: unless-stopped
     init: true
-    ports:
-      - "127.0.0.1:8083:8080"
     depends_on:
       postgres-task:
         condition: service_healthy
@@ -229,11 +268,11 @@ services:
   service-notification:
     build:
       context: .
-      dockerfile: service-notification/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        SERVICE: service-notification
     restart: unless-stopped
     init: true
-    ports:
-      - "127.0.0.1:8084:8080"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -261,6 +300,8 @@ volumes:
   tempo-data:
   prometheus-data:
   grafana-data:
+  loki-data:
+  alloy-data:
 
 networks:
   edge:

@@ -4,7 +4,7 @@ Microsserviço de identidade: registra usuários, autentica credenciais, mantém
 consumidos pelo `service-task`. É o único serviço que conhece senhas e o segredo de
 assinatura.
 
-- Porta interna: `8080` (publicada como `127.0.0.1:8082`).
+- Porta interna: `8080`; acesso pelo host somente via NGINX em `/api/identity`.
 - Banco exclusivo: `postgres-identity` (database `identity`).
 - Não acessa tarefas, RabbitMQ ou o banco de outro serviço.
 
@@ -110,7 +110,9 @@ máxima de 5 min.
 
 ## Observabilidade
 
-- Logs `slog` JSON com `correlation_id` e evento `http_request` por requisição.
+- Logs `slog` JSON com `service_name`, `correlation_id`, `trace_id` e `span_id`, além do evento `http_request` por
+  requisição. Bodies são sanitizados: somente `status`, `priority`, `due_date`, `before_id` e `after_id` mantêm valor;
+  credenciais, dados pessoais e conteúdo livre viram `[REDACTED]`.
 - Métrica de negócio: `task_manager_identity_auth_attempts_total`, com labels
   `operation` (`register`, `login`, `get_profile`, `update_profile` ou `change_password`) e `outcome`
   (`success`, `invalid_payload`, `invalid_input`, `invalid_credentials`, `email_taken`, `unauthorized`,

@@ -23,16 +23,16 @@ const (
 
 // Task representa uma tarefa persistida.
 type Task struct {
-	ID          int64     `json:"id"`
-	UserID      int64     `json:"user_id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	Priority    string    `json:"priority"`
-	DueDate     *Date     `json:"due_date"`
-	Position    float64   `json:"position"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          int64
+	UserID      int64
+	Title       string
+	Description string
+	Status      string
+	Priority    string
+	DueDate     *Date
+	Position    float64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // TaskInput reúne os campos editáveis de uma tarefa.

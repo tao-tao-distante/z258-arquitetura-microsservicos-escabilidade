@@ -4,6 +4,21 @@ import { authGuard } from './auth.guard';
 import { AuthService } from '../services/auth.service';
 
 describe('authGuard', () => {
+  it('allows users with a valid session', () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        { provide: AuthService, useValue: { hasValidSession: () => true } },
+      ],
+    });
+
+    const result = TestBed.runInInjectionContext(() =>
+      authGuard({} as never, { url: '/tasks' } as never),
+    );
+
+    expect(result).toBe(true);
+  });
+
   it('preserves an internal returnUrl for unauthenticated users', () => {
     TestBed.configureTestingModule({
       providers: [

@@ -133,4 +133,32 @@ describe('ProfilePageComponent', () => {
       expect(fixture.componentInstance.changingPassword()).toBe(false);
     });
   });
+
+  it('binds and submits both profile forms through the DOM', async () => {
+    const root = fixture.nativeElement as HTMLElement;
+    const change = async (selector: string, value: string) => {
+      const input = root.querySelector(selector) as HTMLInputElement;
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+      await fixture.whenStable();
+    };
+
+    fixture.componentInstance.profileError.set('Erro anterior');
+    await change('#profile-name', 'Bia');
+    (root.querySelector('[aria-labelledby="profile-data-title"]') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+
+    fixture.componentInstance.passwordError.set('Erro anterior');
+    await change('#profile-current-password', 'secret123');
+    await change('#profile-new-password', 'new-secret');
+    await change('#profile-confirm-password', 'new-secret');
+    (root.querySelector('[aria-labelledby="profile-password-title"]') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+
+    expect(auth.updateName).toHaveBeenCalledWith('Bia');
+    expect(auth.changePassword).toHaveBeenCalledWith({
+      currentPassword: 'secret123',
+      newPassword: 'new-secret',
+    });
+  });
 });

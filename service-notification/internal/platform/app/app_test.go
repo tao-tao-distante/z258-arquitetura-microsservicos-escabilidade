@@ -12,9 +12,13 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-notification/internal/handler"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-notification/internal/platform/config"
+	platformmetrics "github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/metrics"
 )
+
+type fakeCounter struct{}
+
+func (*fakeCounter) Inc(...string) {}
 
 type fakeChannel struct {
 	deliveries chan amqp.Delivery
@@ -96,7 +100,7 @@ func TestNewHTTPHandlerCorrelation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := newHTTPHandler(handler.NewHealth(map[string]func(context.Context) error{}), slog.Default())
+			h := newHTTPHandler(map[string]func(context.Context) error{}, slog.Default(), platformmetrics.New("test"))
 			req := httptest.NewRequest(http.MethodGet, "/health", nil)
 			req.Header.Set("x-correlation-id", tt.header)
 			rec := httptest.NewRecorder()

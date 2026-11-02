@@ -25,3 +25,9 @@ func NewContext(ctx context.Context, id string) context.Context {
 func NewID() string {
 	return uuid.New().String()
 }
+
+// ValidID informa se id contém um UUID v4 válido.
+func ValidID(id string) bool {
+	parsed, err := uuid.Parse(id)
+	return err == nil && parsed.Version() == uuid.Version(4)
+}

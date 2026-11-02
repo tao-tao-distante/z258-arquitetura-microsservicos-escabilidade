@@ -28,4 +28,32 @@ describe('ConfirmDialogComponent', () => {
 
     expect(cancel).not.toHaveBeenCalled();
   });
+
+  it('emits from buttons and overlay while trapping keyboard focus', () => {
+    const fixture = TestBed.createComponent(ConfirmDialogComponent);
+    fixture.componentRef.setInput('title', 'Excluir?');
+    fixture.componentRef.setInput('description', 'Esta ação não pode ser desfeita.');
+    const cancel = vi.fn();
+    const confirm = vi.fn();
+    fixture.componentInstance.cancel.subscribe(cancel);
+    fixture.componentInstance.confirm.subscribe(confirm);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const buttons = Array.from(root.querySelectorAll('button')) as HTMLButtonElement[];
+
+    buttons[1].click();
+    buttons[0].click();
+    buttons[0].focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true }));
+    expect(document.activeElement).toBe(buttons[1]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
+    expect(document.activeElement).toBe(buttons[0]);
+
+    const overlay = root.querySelector('.overlay') as HTMLElement;
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    (root.querySelector('.dialog') as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledTimes(2);
+  });
 });

@@ -2,9 +2,9 @@ import { Component, inject, input, OnInit, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { finalize } from 'rxjs';
 import { apiErrorMessage } from '../../../core/http/http-error.utils';
-import { FieldChange, HistoryAction, TaskHistoryEntry } from '../models/task.model';
+import { TaskHistoryEntry } from '../models/task.model';
 import { TaskDataService } from '../services/task-data.service';
-import { ACTION_LABELS, describeChange, formatDateTime } from '../task.utils';
+import * as taskUtils from '../task.utils';
 
 @Component({
   selector: 'app-task-history',
@@ -27,14 +27,14 @@ import { ACTION_LABELS, describeChange, formatDateTime } from '../task.utils';
           @for (entry of entries(); track entry.id) {
             <li [class]="'entry ' + entry.action">
               <p class="when">
-                <time [attr.datetime]="entry.changed_at">{{ when(entry.changed_at) }}</time>
+                <time [attr.datetime]="entry.changed_at">{{ taskUtils.formatDateTime(entry.changed_at) }}</time>
                 <span aria-hidden="true">·</span>
-                <strong>{{ actionLabel(entry.action) }}</strong>
+                <strong>{{ taskUtils.ACTION_LABELS[entry.action] }}</strong>
               </p>
               @if (entry.changes.length > 0) {
                 <ul class="changes">
                   @for (change of entry.changes; track $index) {
-                    <li>{{ describe(change, entry.action) }}</li>
+                    <li>{{ taskUtils.describeChange(change, entry.action) }}</li>
                   }
                 </ul>
               }
@@ -87,6 +87,7 @@ export class TaskHistoryComponent implements OnInit {
   readonly loading = signal(false);
   readonly error = signal('');
   readonly hasMore = signal(false);
+  readonly taskUtils = taskUtils;
 
   ngOnInit(): void {
     this.load();
@@ -96,18 +97,6 @@ export class TaskHistoryComponent implements OnInit {
     if (!this.loading()) {
       this.load();
     }
-  }
-
-  when(iso: string): string {
-    return formatDateTime(iso);
-  }
-
-  actionLabel(action: HistoryAction): string {
-    return ACTION_LABELS[action] ?? action;
-  }
-
-  describe(change: FieldChange, action: HistoryAction): string {
-    return describeChange(change, action);
   }
 
   private load(): void {

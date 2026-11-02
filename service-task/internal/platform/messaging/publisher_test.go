@@ -12,6 +12,8 @@ import (
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -109,7 +111,17 @@ func TestPublish(t *testing.T) {
 }
 
 func TestPublishInjectsTraceContext(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	oldProvider := otel.GetTracerProvider()
+	oldPropagator := otel.GetTextMapPropagator()
+	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() {
+		otel.SetTracerProvider(oldProvider)
+		otel.SetTextMapPropagator(oldPropagator)
+		require.NoError(t, tp.Shutdown(context.Background()))
+	})
 	ch := &fakeChannel{}
 	p := New(ch)
 	require.NoError(t, p.Setup())
@@ -118,7 +130,16 @@ func TestPublishInjectsTraceContext(t *testing.T) {
 	})
 	ctx := trace.ContextWithSpanContext(context.Background(), spanContext)
 	require.NoError(t, p.Publish(ctx, "task-1", broker.RoutingKey, []byte(`{"task_id":1,"title":"x"}`)))
-	require.NotEmpty(t, ch.publishedMsg.Headers["traceparent"])
+
+	propagated := otel.GetTextMapPropagator().Extract(context.Background(), broker.HeaderCarrier(ch.publishedMsg.Headers))
+	propagatedSpan := trace.SpanContextFromContext(propagated)
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	require.Equal(t, "rabbitmq publish", spans[0].Name)
+	require.Equal(t, trace.SpanKindProducer, spans[0].SpanKind)
+	require.Equal(t, spanContext.SpanID(), spans[0].Parent.SpanID())
+	require.Equal(t, spanContext.TraceID(), propagatedSpan.TraceID())
+	require.Equal(t, spans[0].SpanContext.SpanID(), propagatedSpan.SpanID())
 }
 
 func TestPublishError(t *testing.T) {
@@ -165,12 +186,6 @@ func TestSetupConfirmError(t *testing.T) {
 
 func TestPublishRequiresSetup(t *testing.T) {
 	require.Error(t, New(&fakeChannel{}).Publish(context.Background(), "event", broker.RoutingKey, nil))
-}
-
-func TestTableCarrier(t *testing.T) {
-	carrier := tableCarrier{"traceparent": "value"}
-	require.Equal(t, "value", carrier.Get("traceparent"))
-	require.Contains(t, carrier.Keys(), "traceparent")
 }
 
 func TestPublishStopsOnContextCanceled(t *testing.T) {

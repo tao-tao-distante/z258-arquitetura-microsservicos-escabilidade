@@ -141,14 +141,14 @@ func TestTokenFromHeaderInvalid(t *testing.T) {
 }
 
 func TestMiddlewareRejectsMissing(t *testing.T) {
-	h := Middleware("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	h := Middleware("secret", func(*http.Request) {})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 func TestMiddlewareRejectsInvalid(t *testing.T) {
-	h := Middleware("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	h := Middleware("secret", func(*http.Request) {})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer bad")
 	rec := httptest.NewRecorder()
@@ -169,7 +169,7 @@ func TestMiddlewareReportsUnauthorizedRequest(t *testing.T) {
 
 func TestMiddlewareAccepts(t *testing.T) {
 	var got *Claims
-	h := Middleware("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := Middleware("secret", func(*http.Request) {})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = FromContext(r.Context())
 	}))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -223,7 +223,7 @@ func TestParseAccessTokenRequiresStrictClaims(t *testing.T) {
 }
 
 func TestMiddlewareUnauthorizedIsJSON(t *testing.T) {
-	h := Middleware("secret")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	h := Middleware("secret", func(*http.Request) {})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	require.Equal(t, "application/json", rec.Header().Get("Content-Type"))

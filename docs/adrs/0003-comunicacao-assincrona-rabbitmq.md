@@ -1,8 +1,8 @@
-# 0003 - Comunicação Assíncrona via RabbitMQ com Tratamento de DLQ
+# 0003 - Comunicação assíncrona via RabbitMQ com tratamento de DLQ
 
 ## Status
 
-Aceito.
+Aceito. O ADR-0016 substitui a meta de latência citada no contexto.
 
 ## Data
 
@@ -10,9 +10,9 @@ Aceito.
 
 ## Contexto e Problema
 
-Quando uma nova tarefa é criada ou atribuída, notificações devem ser geradas. Processar o envio de notificações de forma
-síncrona dentro da requisição HTTP do `service-task` degradaria os tempos de resposta e desrespeitaria os SLOs de
-latência definidos ($p_{95} \le 150\text{ms}$).
+Quando uma nova tarefa é criada, o domínio de notificações deve receber o evento sem bloquear a requisição HTTP. O
+serviço atual registra o recebimento e não envia e-mail, push ou webhook. As metas e fontes de latência vigentes estão no
+ADR-0016.
 
 ## Fatores de Decisão
 

@@ -9,6 +9,7 @@ describe('AppComponent', () => {
   const auth = { user: signal<AuthUser | null>(null), logout: vi.fn() };
 
   beforeEach(async () => {
+    auth.logout.mockClear();
     await TestBed.configureTestingModule({
       imports: [AppComponent],
       providers: [
@@ -55,5 +56,48 @@ describe('AppComponent', () => {
     expect(rail.map((a) => a.querySelector('.index')?.textContent)).toEqual(['01', '02', '03', '04', '05']);
     expect(mobile[0]?.getAttribute('href')).toBe('/profile');
     expect(mobile[0]?.textContent?.trim()).toBe('PERFIL');
+  });
+
+  it('operates the menu and account actions through their DOM controls', () => {
+    auth.user.set({ id: 1, email: 'user@example.com', name: 'Ana' });
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    (root.querySelector('.menu-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.menuOpen()).toBe(true);
+
+    (root.querySelector('.scrim') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.menuOpen()).toBe(false);
+
+    for (const selector of ['.wordmark', '.rail-nav a', '.account']) {
+      fixture.componentInstance.menuOpen.set(true);
+      (root.querySelector(selector) as HTMLElement).click();
+      expect(fixture.componentInstance.menuOpen()).toBe(false);
+    }
+
+    fixture.componentInstance.menuOpen.set(true);
+    (root.querySelector('.logout') as HTMLButtonElement).click();
+    expect(auth.logout).toHaveBeenCalledOnce();
+    expect(fixture.componentInstance.menuOpen()).toBe(false);
+  });
+
+  it.each([
+    ['/dashboard', 'WORKSPACE / DASHBOARD / VISÃO GERAL'],
+    ['/tasks', 'WORKSPACE / TAREFAS / LISTA'],
+    ['/tasks/board', 'WORKSPACE / KANBAN / QUADRO'],
+    ['/tasks/new', 'WORKSPACE / CRIAR TAREFA / FORMULÁRIO'],
+    ['/tasks/7/edit?from=list', 'WORKSPACE / EDITAR TAREFA / FORMULÁRIO'],
+    ['/tasks/7', 'WORKSPACE / DETALHE DA TAREFA'],
+    ['/activities', 'WORKSPACE / ATIVIDADES'],
+    ['/unknown', 'WORKSPACE'],
+  ])('shows the breadcrumb for %s', async (url, breadcrumb) => {
+    const fixture = TestBed.createComponent(AppComponent);
+    await TestBed.inject(Router).navigateByUrl(url);
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.crumb')?.textContent).toBe(breadcrumb);
   });
 });

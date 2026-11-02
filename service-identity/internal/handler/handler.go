@@ -37,34 +37,12 @@ type Handler struct {
 
 type counter interface{ Inc(...string) }
 
-type noopCounter struct{}
-
-func (noopCounter) Inc(...string) {}
-
-// New cria o handler com o serviço, as checagens de dependência e o logger informados.
-func New(svc AuthService, deps map[string]func(context.Context) error, logs ...*slog.Logger) *Handler {
-	log := slog.Default()
-	if len(logs) > 0 && logs[0] != nil {
-		log = logs[0]
-	}
-	h := &Handler{svc: svc, deps: deps, log: log, metrics: noopCounter{}}
+// New cria o handler com suas dependências.
+func New(svc AuthService, deps map[string]func(context.Context) error, log *slog.Logger, metrics counter, secret string) *Handler {
+	h := &Handler{svc: svc, deps: deps, log: log, metrics: metrics, secret: secret}
 	h.limiter = middleware.NewRateLimiter(10, time.Minute, time.Now).OnLimit(func(r *http.Request) {
 		h.metrics.Inc(limitedOperation(r.URL.Path), "rate_limited")
 	})
-	return h
-}
-
-// WithAuthMetrics habilita contagem de tentativas por operação e resultado.
-func (h *Handler) WithAuthMetrics(metrics counter) *Handler {
-	if metrics != nil {
-		h.metrics = metrics
-	}
-	return h
-}
-
-// WithJWT define o segredo usado para validar o Bearer token das rotas de perfil.
-func (h *Handler) WithJWT(secret string) *Handler {
-	h.secret = secret
 	return h
 }
 
@@ -101,7 +79,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /me", h.protected("get_profile", h.GetProfile))
 	mux.Handle("PATCH /me", h.protected("update_profile", h.UpdateProfile))
 	mux.Handle("PUT /me/password", h.limiter.Handler(h.protected("change_password", h.ChangePassword)))
-	return middleware.Correlation(platformmetrics.RoutePattern(mux))
+	return platformmetrics.RoutePattern(mux)
 }
 
 // Register cria um usuário e devolve o JWT emitido.
@@ -130,6 +108,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.Inc("register", "success")
+	logger.WithContext(r.Context(), h.log).InfoContext(r.Context(), "user_registered", "user_id", user.ID)
 	httpx.WriteJSON(w, http.StatusCreated, authResponse{ID: user.ID, Email: user.Email, Name: user.Name, Token: token})
 }
 
@@ -144,6 +123,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	user, token, err := h.svc.Login(r.Context(), c.Email, c.Password)
 	if errors.Is(err, domain.ErrInvalidCredentials) {
 		h.metrics.Inc("login", "invalid_credentials")
+		logger.WithContext(r.Context(), h.log).WarnContext(r.Context(), "login_failed", "reason", "invalid_credentials")
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -159,6 +139,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.Inc("login", "success")
+	logger.WithContext(r.Context(), h.log).InfoContext(r.Context(), "login_succeeded", "user_id", user.ID)
 	httpx.WriteJSON(w, http.StatusOK, authResponse{ID: user.ID, Email: user.Email, Name: user.Name, Token: token})
 }
 
@@ -174,7 +155,7 @@ func decodeCredentials(w http.ResponseWriter, r *http.Request) (credentials, int
 }
 
 func (h *Handler) logInternal(ctx context.Context, err error) {
-	logger.WithCorrelation(ctx, h.log).ErrorContext(ctx, "internal_error", "error", err)
+	logger.WithContext(ctx, h.log).ErrorContext(ctx, "internal_error", "error", err)
 }
 
 // Health responde o estado do serviço e do PostgreSQL.

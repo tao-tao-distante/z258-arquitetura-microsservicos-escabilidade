@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/domain"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // TaskRepository define a persistência de tarefas, do histórico e do outbox.
@@ -91,9 +93,15 @@ func (r *PostgresTaskRepository) Create(ctx context.Context, task *domain.Task) 
 	if err != nil {
 		return nil, fmt.Errorf("marshal task event: %w", err)
 	}
-	const outboxQuery = `INSERT INTO task_outbox (event_id, task_id, event_type, payload, correlation_id)
-		VALUES ($1, $2, 'task.created', $3, $4)`
-	if _, err := tx.ExecContext(ctx, outboxQuery, eventID, t.ID, payload, correlation.FromContext(ctx)); err != nil {
+	traceCarrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, traceCarrier)
+	traceContext, err := json.Marshal(traceCarrier)
+	if err != nil {
+		return nil, fmt.Errorf("marshal trace context: %w", err)
+	}
+	const outboxQuery = `INSERT INTO task_outbox (event_id, task_id, event_type, payload, correlation_id, trace_context)
+		VALUES ($1, $2, 'task.created', $3, $4, $5)`
+	if _, err := tx.ExecContext(ctx, outboxQuery, eventID, t.ID, payload, correlation.FromContext(ctx), string(traceContext)); err != nil {
 		return nil, fmt.Errorf("create outbox event: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -428,11 +436,13 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		event_type TEXT NOT NULL,
 		payload JSONB NOT NULL,
 		correlation_id TEXT NOT NULL DEFAULT '',
+		trace_context JSONB NOT NULL DEFAULT '{}',
 		attempts INTEGER NOT NULL DEFAULT 0,
 		available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		sent_at TIMESTAMPTZ
 	);
+	ALTER TABLE task_outbox ADD COLUMN IF NOT EXISTS trace_context JSONB NOT NULL DEFAULT '{}';
 	CREATE INDEX IF NOT EXISTS idx_task_outbox_pending ON task_outbox (available_at, id) WHERE sent_at IS NULL`
 	if _, err := db.ExecContext(ctx, ddl); err != nil {
 		return fmt.Errorf("migrate tasks: %w", err)
@@ -447,6 +457,7 @@ type OutboxEvent struct {
 	EventType     string
 	Payload       []byte
 	CorrelationID string
+	TraceContext  map[string]string
 	Attempts      int
 }
 
@@ -457,14 +468,18 @@ func (r *PostgresTaskRepository) ClaimOutbox(ctx context.Context) (*OutboxEvent,
 		ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1
 	) UPDATE task_outbox o SET attempts = attempts + 1, available_at = NOW() + INTERVAL '30 seconds'
 	FROM pending WHERE o.id = pending.id
-	RETURNING o.id, o.event_id, o.event_type, o.payload, o.correlation_id, o.attempts`
+	RETURNING o.id, o.event_id, o.event_type, o.payload, o.correlation_id, o.trace_context, o.attempts`
 	var event OutboxEvent
-	err := r.db.QueryRowContext(ctx, query).Scan(&event.ID, &event.EventID, &event.EventType, &event.Payload, &event.CorrelationID, &event.Attempts)
+	var traceContext []byte
+	err := r.db.QueryRowContext(ctx, query).Scan(&event.ID, &event.EventID, &event.EventType, &event.Payload, &event.CorrelationID, &traceContext, &event.Attempts)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("claim outbox event: %w", err)
+	}
+	if err := json.Unmarshal(traceContext, &event.TraceContext); err != nil {
+		return nil, fmt.Errorf("decode outbox trace context: %w", err)
 	}
 	return &event, nil
 }

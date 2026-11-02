@@ -21,7 +21,7 @@ func TestMovePassesPayloadToService(t *testing.T) {
 	svc := &fakeService{task: &domain.Task{ID: 5, Status: "doing", Position: 1536}}
 	rec := httptest.NewRecorder()
 
-	New(svc, nil).Move(rec, moveRequest("5", `{"status":"doing","before_id":2,"after_id":3}`))
+	newTestHandler(svc, nil).Move(rec, moveRequest("5", `{"status":"doing","before_id":2,"after_id":3}`))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `"position":1536`)
@@ -36,7 +36,7 @@ func TestMoveAcceptsNullNeighbors(t *testing.T) {
 	svc := &fakeService{task: &domain.Task{ID: 5}}
 	rec := httptest.NewRecorder()
 
-	New(svc, nil).Move(rec, moveRequest("5", `{"status":"todo","before_id":null}`))
+	newTestHandler(svc, nil).Move(rec, moveRequest("5", `{"status":"todo","before_id":null}`))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Nil(t, svc.move.BeforeID)
@@ -66,7 +66,7 @@ func TestMoveErrors(t *testing.T) {
 			counter := &fakeCounter{}
 			rec := httptest.NewRecorder()
 
-			New(&fakeService{err: tt.err}, nil).WithTaskMetrics(counter).Move(rec, moveRequest(tt.id, tt.body))
+			newTestHandlerWithCounter(&fakeService{err: tt.err}, nil, counter).Move(rec, moveRequest(tt.id, tt.body))
 
 			require.Equal(t, tt.wantCode, rec.Code)
 			require.Equal(t, [][]string{{"move", tt.wantLbl}}, counter.labels)
@@ -75,7 +75,7 @@ func TestMoveErrors(t *testing.T) {
 }
 
 func TestRoutesMoveRequiresJWT(t *testing.T) {
-	rr := New(&fakeService{task: &domain.Task{ID: 5}}, nil).Routes("secret")
+	rr := newTestHandler(&fakeService{task: &domain.Task{ID: 5}}, nil).Routes()
 
 	rec := httptest.NewRecorder()
 	rr.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/tasks/5/move", bytes.NewBufferString(`{"status":"todo"}`)))

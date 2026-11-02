@@ -15,6 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/service-task/internal/domain"
 	"github.com/tao-tao-distante/z258-arquitetura-microsservicos-escabilidade/shared/correlation"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const historySQL = "INSERT INTO task_history (task_id, user_id, action, changes, correlation_id)"
@@ -70,7 +73,7 @@ func TestCreate(t *testing.T) {
 			"cid-create").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO task_outbox")).
-		WithArgs(sqlmock.AnyArg(), int64(1), sqlmock.AnyArg(), "cid-create").
+		WithArgs(sqlmock.AnyArg(), int64(1), sqlmock.AnyArg(), "cid-create", jsonArg(`{}`)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	repo := NewPostgresTaskRepository(db)
@@ -99,6 +102,34 @@ func TestCreateWithoutDueDate(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Nil(t, task.DueDate)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreatePersistsTraceContextInOutbox(t *testing.T) {
+	oldPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() { otel.SetTextMapPropagator(oldPropagator) })
+
+	db, mock := newMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO tasks")).
+		WillReturnRows(taskRows(1, "title", "todo", "medium", nil))
+	mock.ExpectExec(regexp.QuoteMeta(historySQL)).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO task_outbox")).
+		WithArgs(sqlmock.AnyArg(), int64(1), sqlmock.AnyArg(), "cid-trace",
+			jsonArg(`{"traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}`)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	spanContext := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{0x4b, 0xf9, 0x2f, 0x35, 0x77, 0xb3, 0x4d, 0xa6, 0xa3, 0xce, 0x92, 0x9d, 0x0e, 0x0e, 0x47, 0x36},
+		SpanID:     trace.SpanID{0x00, 0xf0, 0x67, 0xaa, 0x0b, 0xa9, 0x02, 0xb7},
+		TraceFlags: trace.FlagsSampled,
+	})
+	ctx := correlation.NewContext(trace.ContextWithSpanContext(context.Background(), spanContext), "cid-trace")
+
+	_, err := NewPostgresTaskRepository(db).Create(ctx, &domain.Task{UserID: 1, Title: "title", Status: "todo", Priority: "medium"})
+
+	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -394,7 +425,7 @@ func TestHistory(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery(regexp.QuoteMeta(ownerSQL)).WithArgs(int64(5), int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(regexp.QuoteMeta(historyListSQL) + `\s+` + regexp.QuoteMeta("WHERE task_id = $1 ORDER BY changed_at DESC, id DESC LIMIT $2 OFFSET $3")).
+	mock.ExpectQuery(regexp.QuoteMeta(historyListSQL)+`\s+`+regexp.QuoteMeta("WHERE task_id = $1 ORDER BY changed_at DESC, id DESC LIMIT $2 OFFSET $3")).
 		WithArgs(int64(5), 20, 0).
 		WillReturnRows(sqlmock.NewRows(historyColumns).
 			AddRow(2, 5, "moved", []byte(`[{"field":"status","from":"todo","to":"doing"}]`), "cid-2", now).
@@ -489,13 +520,14 @@ func TestMigrateError(t *testing.T) {
 func TestClaimOutbox(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("WITH pending AS")).WillReturnRows(
-		sqlmock.NewRows([]string{"id", "event_id", "event_type", "payload", "correlation_id", "attempts"}).
-			AddRow(3, "event-1", "task.created", []byte(`{"task_id":1}`), "cid", 2),
+		sqlmock.NewRows([]string{"id", "event_id", "event_type", "payload", "correlation_id", "trace_context", "attempts"}).
+			AddRow(3, "event-1", "task.created", []byte(`{"task_id":1}`), "cid", []byte(`{"traceparent":"parent"}`), 2),
 	)
 	event, err := NewPostgresTaskRepository(db).ClaimOutbox(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(3), event.ID)
 	require.Equal(t, "cid", event.CorrelationID)
+	require.Equal(t, "parent", event.TraceContext["traceparent"])
 }
 
 func TestClaimOutboxEmpty(t *testing.T) {
