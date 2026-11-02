@@ -1,0 +1,9 @@
+*
+!shared
+!shared/**
+!service-identity
+!service-identity/**
+!service-task
+!service-task/**
+!service-notification
+!service-notification/**

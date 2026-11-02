@@ -1,23 +1,278 @@
-# z258-arquitetura-microsservicos-escabilidade
+# Task Manager System
 
-Template inicial para três serviços. Enquanto a stack não for definida, cada
-Dockerfile inicia NGINX 1.31.6 com uma página placeholder.
+## Integrantes
 
-## Executar
+| Nome | Matrícula |
+|---|---|
+| Nome completo | 0000000 |
+| Nome completo | 0000000 |
+| Nome completo | 0000000 |
 
-```sh
-docker compose up --build -d
+## Design
+
+Protótipo de interface no Figma: [Task Manager — Product UI — Angular](https://www.figma.com/design/30NGvSADIVJnbFmHP3rhx0/Task-Manager-%E2%80%94-Product-UI---Angular?node-id=7-2&m=dev)
+
+Plataforma de gerenciamento de tarefas com três microsserviços Go, SPA Angular, PostgreSQL isolado por domínio,
+RabbitMQ e uma stack local de observabilidade. Consulte [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) e os
+[ADRs](docs/adrs/).
+
+## Documentação por módulo
+
+| Módulo | README | Conteúdo |
+|---|---|---|
+| `shared` | [`shared/README.md`](shared/README.md) | Pacotes comuns, contratos de auth, correlação, broker, métricas e tracing. |
+| `service-identity` | [`service-identity/README.md`](service-identity/README.md) | Registro/login, perfil (nome e senha), bcrypt, emissão de JWT e rate limit. |
+| `service-task` | [`service-task/README.md`](service-task/README.md) | CRUD autenticado, outbox transacional e dispatch AMQP. |
+| `service-notification` | [`service-notification/README.md`](service-notification/README.md) | Consumo de `task.created`, Ack/Nack e DLQ. |
+| `frontend` | [`frontend/README.md`](frontend/README.md) | Rotas, guards, interceptors, sessão, proxy e build NGINX. |
+| `provisioning` | [`provisioning/README.md`](provisioning/README.md) | Prometheus, Tempo, OTel Collector, Grafana e RabbitMQ. |
+
+## Arquitetura
+
+```text
+cliente -> frontend/NGINX :8081 -> service-identity :8080 -> postgres-identity
+                              |-> service-task     :8080 -> postgres-task
+                                      |                     |
+                                      +---- RabbitMQ <------ service-notification
+
+serviços /metrics -----\
+RabbitMQ :15692 --------> Prometheus -> Grafana
+OTLP -> OpenTelemetry Collector -> Tempo ----/
 ```
 
-| Serviço   | URL local             |
-|-----------|-----------------------|
-| service-a | http://localhost:8081 |
-| service-b | http://localhost:8082 |
-| service-c | http://localhost:8083 |
+O NGINX é a entrada pública da aplicação em `0.0.0.0:8081`. APIs diretas, Grafana e RabbitMQ Management são portas
+de desenvolvimento/administração vinculadas a `127.0.0.1`. Bancos, AMQP, OTLP, Tempo e Prometheus não publicam portas
+no host.
+
+## Setup
+
+1. Crie o arquivo local de segredos:
+
+   ```sh
+   cp .env.example .env
+   ```
+
+2. Substitua todos os valores de exemplo. Use senhas aleatórias e distintas. Como as senhas dos bancos e do RabbitMQ
+   são inseridas em URLs, use caracteres alfanuméricos ou aplique percent-encoding.
+
+3. Valide e suba a stack:
+
+   ```sh
+   docker compose config -q
+   docker compose up --build -d
+   docker compose ps
+   ```
+
+O Compose falha imediatamente se uma variável obrigatória estiver ausente. O usuário RabbitMQ vem de `.env`; o usuário
+`guest` não é utilizado pelos containers da aplicação.
+
+| Componente | URL local | Exposição |
+|---|---|---|
+| Frontend | http://localhost:8081 | todas as interfaces |
+| service-identity | http://localhost:8082 | somente loopback |
+| service-task | http://localhost:8083 | somente loopback |
+| service-notification | http://localhost:8084 | somente loopback |
+| Grafana | http://localhost:3000 | somente loopback |
+| RabbitMQ Management | http://localhost:15672 | somente loopback |
+
+Grafana recebe as credenciais de `.env`. Os datasources Prometheus e Tempo e os dashboards são provisionados
+automaticamente. Não é necessário importar dashboards manualmente.
 
 ```sh
-docker compose down
+docker compose logs -f service-notification
+docker compose down       # preserva volumes nomeados
+docker compose down -v    # remove dados locais persistidos
 ```
 
-Substitua `index.html` e o Dockerfile de cada serviço após escolher sua stack.
-Mantenha porta interna `80` ou ajuste `compose.yml` para refletir a porta real.
+## API
+
+### Identity
+
+| Método | Rota | Descrição | Sucesso |
+|---|---|---|---|
+| POST | `/register` | Cria usuário e devolve JWT | `201` |
+| POST | `/login` | Autentica e devolve JWT | `200` |
+| GET | `/me` | Perfil do usuário autenticado (`{id,email,name}`) | `200` |
+| PATCH | `/me` | Altera o nome (`{"name":"..."}`, 1–100 caracteres) | `200` |
+| PUT | `/me/password` | Troca a senha (`{"current_password":"...","new_password":"..."}`) | `204` |
+| GET | `/health` | Verifica serviço e PostgreSQL | `200` ou `503` |
+| GET | `/metrics` | Métricas Prometheus do serviço | `200` |
+
+Cadastro/login: `{"email":"user@example.com","password":"secret123"}`.
+
+Respostas de `/register` e `/login` incluem `name` (vazio até o usuário defini-lo no perfil). As rotas `/me` exigem
+`Authorization: Bearer <jwt>`; a senha atual incorreta em `PUT /me/password` devolve `403`.
+
+`POST /register`, `POST /login` e `PUT /me/password` aceitam 10 requisições por minuto por IP; excedentes recebem `429`
+com `Retry-After: 60`.
+
+### Tasks
+
+Rotas de tarefas exigem `Authorization: Bearer <jwt>`.
+
+| Método | Rota | Descrição | Sucesso |
+|---|---|---|---|
+| GET | `/tasks?limit=50&offset=0` | Lista tarefas do usuário com paginação (`limit` 1..100, padrão 50) | `200` |
+| POST | `/tasks` | Cria tarefa | `201` |
+| GET | `/tasks/{id}` | Busca tarefa | `200` |
+| PUT | `/tasks/{id}` | Atualiza tarefa | `200` |
+| DELETE | `/tasks/{id}` | Remove tarefa | `204` |
+| PATCH | `/tasks/{id}/move` | Move a tarefa no quadro (`status`, `before_id`, `after_id`) | `200` |
+| GET | `/health` | Verifica serviço e dependências | `200` ou `503` |
+| GET | `/metrics` | Métricas Prometheus do serviço | `200` |
+
+Corpo de tarefa: `{"title":"...","description":"...","status":"todo|doing|done"}`. `status` é opcional no `POST`
+(padrão `todo`) e aceita apenas `todo`, `doing` ou `done`.
+
+### Frontend
+
+A SPA Angular consome as APIs por URLs relativas (`/api/identity`, `/api/tasks`, `/api/notifications`) e o NGINX faz
+proxy para os serviços. Rotas protegidas por `authGuard`:
+
+| Rota | Tela |
+|---|---|
+| `/login`, `/register` | Autenticação |
+| `/dashboard` | Indicadores e tarefas recentes |
+| `/tasks` | Lista com busca e filtros |
+| `/tasks/board` | Quadro por status |
+| `/tasks/new`, `/tasks/:id/edit` | Criação e edição |
+| `/tasks/:id` | Detalhe da tarefa |
+| `/activities` (`/notifications` redireciona) | Atividades e saúde do consumidor |
+| `/profile` | Perfil: editar nome e alterar senha |
+
+`TaskDataService.list()` pagina em blocos de 100 até esgotar os resultados, respeitando o máximo do backend.
+
+### Notifications
+
+`GET /health` verifica o processo e RabbitMQ; `GET /metrics` expõe métricas Prometheus. O consumidor recebe
+`task.created` na fila durável `task.events`.
+Evento JSON inválido recebe `Nack` sem requeue e segue para `task.events.dlq` pela exchange `tasks.dlx`. O consumidor não
+faz retry próprio; o publisher usa outbox transacional com retry/backoff e entrega at-least-once. Não há entrega de
+notificação externa implementada.
+
+### Erros
+
+| Status | Quando                                                                                 |
+|--------|----------------------------------------------------------------------------------------|
+| `400`  | JSON inválido, campo desconhecido, paginação inválida, `id` inválido, título ausente, status inválido, nome ou nova senha inválidos |
+| `401`  | JWT ausente, inválido ou expirado; credenciais incorretas no login                     |
+| `403`  | senha atual incorreta em `PUT /me/password`                                            |
+| `404`  | tarefa não encontrada ou pertencente a outro usuário; usuário do token inexistente em `/me` |
+| `409`  | e-mail já cadastrado em `/register`                                                    |
+| `413`  | corpo acima do limite: 16 KiB em Identity, 1 MiB em Tasks                              |
+| `429`  | limite de 10 requisições por minuto por IP em `/register`, `/login` e `/me/password`   |
+| `500`  | erro interno não classificado                                                          |
+| `503`  | dependência indisponível retornada por `/health`                                       |
+
+## Correlação e telemetria
+
+- `x-correlation-id` é um identificador de aplicação para logs e eventos, não um header W3C Trace Context.
+- O frontend gera UUID v4; os serviços aceitam apenas UUIDs v4 válidos, devolvem o header, armazenam o valor no
+  `context.Context` e registram `correlation_id` nos logs JSON. Header ausente ou inválido é substituído por UUID v4.
+- O `service-task` copia `x-correlation-id` para o header AMQP e o consumidor o extrai.
+- W3C Trace Context (`traceparent`/`tracestate`) é propagado via `otelhttp`; spans são exportados por OTLP/gRPC quando
+  `OTEL_EXPORTER_OTLP_ENDPOINT` está definido. Sem o endpoint, a exportação fica desabilitada e a aplicação segue com
+  propagação e provider no-op.
+- Traces seguem por OTLP/Collector para Tempo. Métricas são coletadas pelo Prometheus nos endpoints internos `/metrics`.
+- Loki não faz parte desta stack; logs permanecem no `stdout` dos containers.
+
+### Métricas de negócio
+
+| Métrica | Labels | Uso |
+|---|---|---|
+| `task_manager_identity_auth_attempts_total` | `operation`, `outcome` | cadastros, logins, leitura/edição de perfil e troca de senha por resultado |
+| `task_manager_task_operations_total` | `operation`, `outcome` | CRUD de tarefas por resultado |
+| `task_manager_task_outbox_events_total` | `outcome` | eventos enviados, retries e falhas do outbox |
+| `task_manager_notification_events_total` | `outcome` | eventos confirmados, rejeitados e falhas de Ack/Nack |
+
+Todos os serviços também expõem `task_manager_http_requests_total`,
+`task_manager_http_request_duration_seconds`, métricas `go_*` e `process_*`. Labels usam padrões de rota e conjuntos
+limitados; IDs de usuário/tarefa/evento, e-mail, correlation ID, URL bruta e texto de erro não são labels.
+
+Exemplos PromQL:
+
+```promql
+sum by (operation, outcome) (rate(task_manager_task_operations_total[5m]))
+sum by (outcome) (rate(task_manager_task_outbox_events_total[5m]))
+histogram_quantile(0.95, sum by (service, le) (rate(task_manager_http_request_duration_seconds_bucket[5m])))
+```
+
+### Dashboards Grafana
+
+Os arquivos em `provisioning/grafana/dashboard-definitions/` são provisionados na pasta `Task Manager`:
+
+| Dashboard | Visão |
+|---|---|
+| `Task Manager - Visão de Negócio` | cadastro, login, CRUD, outbox e consumo de notificações |
+| `Task Manager - Backends Go` | disponibilidade, taxa HTTP, 5xx, p95/p99, goroutines e memória |
+| `Task Manager - RabbitMQ` | conexões, canais, consumidores, filas/DLQ, vazão, recursos e alarmes |
+
+O plugin oficial `rabbitmq_prometheus` atende internamente em `rabbitmq:15692/metrics`. Métricas por objeto separam
+`task.events` e `task.events.dlq`; `:15692` não é publicado no host.
+
+## Persistência e redes
+
+PostgreSQL, RabbitMQ, Tempo, Prometheus e Grafana usam volumes nomeados. Redes internas separam dados de Identity, dados
+de Task, mensageria e telemetria. A rede `edge` contém apenas frontend e APIs. Cada serviço acessa somente dependências
+necessárias ao seu papel. Como redes Docker `internal` não publicam portas, o Grafana também participa de uma rede
+bridge `admin` dedicada, usada apenas para expor `127.0.0.1:3000`.
+
+O armazenamento do JWT no frontend e suas mitigações estão em [frontend/SECURITY.md](frontend/SECURITY.md).
+
+## Desenvolvimento
+
+```sh
+cd shared && go test ./...
+cd service-identity && go test ./...
+cd service-task && go test ./...
+cd service-notification && go test ./...
+
+cd frontend
+npm install
+npm run start
+npm run build
+npm test -- --no-watch --code-coverage
+```
+
+Os três serviços importam o módulo local `shared/` (via `replace`) com correlação, logging, middleware, auth, HTTP e
+telemetria comuns. Por isso o context de build é a raiz do repositório; o `.dockerignore` da raiz limita o contexto aos
+diretórios `shared/` e `service-*/`.
+
+Contexts Docker ignoram dependências, builds, cobertura e arquivos `.env`. Arquivos `.env.*` são ignorados pelo Git,
+exceto exemplos e certificados versionados explicitamente.
+
+## Validação de infraestrutura
+
+Com `.env` configurado:
+
+```sh
+docker compose config -q
+docker run --rm -v "$PWD/provisioning/tempo/tempo.yaml:/etc/tempo.yaml:ro" \
+  grafana/tempo:3.1.1 -config.file=/etc/tempo.yaml -config.verify=true
+docker run --rm -v "$PWD/provisioning/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+  otel/opentelemetry-collector-contrib:0.164.0 \
+  validate --config=/etc/otelcol-contrib/config.yaml
+docker run --rm -v "$PWD/provisioning/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+  --entrypoint /bin/promtool prom/prometheus:v3.15.1 \
+  check config /etc/prometheus/prometheus.yml
+```
+
+Para validar interpolação sem criar `.env`, use `docker compose --env-file .env.example config -q`. Não use o arquivo de
+exemplo como credencial de um ambiente compartilhado.
+
+## Decisões arquiteturais
+
+| ADR | Tema |
+|---|---|
+| [0001](docs/adrs/0001-database-per-service.md) | Database-per-Service com PostgreSQL |
+| [0002](docs/adrs/0002-correlation-id-e-observabilidade.md) | Correlação de aplicação e telemetria |
+| [0003](docs/adrs/0003-comunicacao-assincrona-rabbitmq.md) | RabbitMQ e DLQ |
+| [0004](docs/adrs/0004-adocao-arquitetura-microsservicos.md) | Microsserviços |
+| [0005](docs/adrs/0005-framework-frontend-angular.md) | Angular |
+| [0006](docs/adrs/0006-backend-go-golang.md) | Go |
+| [0007](docs/adrs/0007-autenticacao-stateless-jwt.md) | JWT |
+| [0008](docs/adrs/0008-containerizacao-docker-compose.md) | Docker Compose |
+| [0009](docs/adrs/0009-estrutura-e-layout-de-projeto-go.md) | Layout Go |
+| [0010](docs/adrs/0010-estrutura-e-arquitetura-de-projeto-angular.md) | Layout Angular |
+| [0011](docs/adrs/0011-hardening-infraestrutura-local.md) | Hardening da infraestrutura local |
+| [0012](docs/adrs/0012-metricas-prometheus-e-dashboards-grafana.md) | Métricas Prometheus e dashboards Grafana provisionados |

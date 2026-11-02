@@ -1,0 +1,43 @@
+{
+  "base_url": "http://localhost:8081",
+  "duration": "2m",
+  "list_rate_rps": 50,
+  "create_rate_rps": 10,
+  "endpoints": {
+    "GET /tasks": {
+      "p50_ms": 3.100544,
+      "p95_ms": 5.44896,
+      "p99_ms": 6.654811,
+      "requests": 6001,
+      "throughput_rps": 49.82914863460633
+    },
+    "POST /tasks": {
+      "p50_ms": 6.920039,
+      "p95_ms": 11.229386,
+      "p99_ms": 17.695,
+      "requests": 1201,
+      "throughput_rps": 9.972472506275986
+    }
+  },
+  "thresholds": {
+    "http_reqs{endpoint:create_task}": {
+      "count>0": true
+    },
+    "http_req_failed{scenario:create_tasks}": {
+      "rate<0.01": true
+    },
+    "http_req_duration{endpoint:create_task}": {
+      "p(95)<300": true
+    },
+    "http_reqs{endpoint:list_tasks}": {
+      "count>0": true
+    },
+    "http_req_duration{endpoint:list_tasks}": {
+      "p(95)<200": true,
+      "p(99)<500": true
+    },
+    "http_req_failed{scenario:list_tasks}": {
+      "rate<0.01": true
+    }
+  }
+}
