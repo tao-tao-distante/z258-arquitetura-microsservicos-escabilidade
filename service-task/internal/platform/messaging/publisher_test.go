@@ -131,7 +131,7 @@ func TestPublishInjectsTraceContext(t *testing.T) {
 	ctx := trace.ContextWithSpanContext(context.Background(), spanContext)
 	require.NoError(t, p.Publish(ctx, "task-1", broker.RoutingKey, []byte(`{"task_id":1,"title":"x"}`)))
 
-	propagated := otel.GetTextMapPropagator().Extract(context.Background(), tableCarrier(ch.publishedMsg.Headers))
+	propagated := otel.GetTextMapPropagator().Extract(context.Background(), broker.HeaderCarrier(ch.publishedMsg.Headers))
 	propagatedSpan := trace.SpanContextFromContext(propagated)
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
@@ -186,12 +186,6 @@ func TestSetupConfirmError(t *testing.T) {
 
 func TestPublishRequiresSetup(t *testing.T) {
 	require.Error(t, New(&fakeChannel{}).Publish(context.Background(), "event", broker.RoutingKey, nil))
-}
-
-func TestTableCarrier(t *testing.T) {
-	carrier := tableCarrier{"traceparent": "value"}
-	require.Equal(t, "value", carrier.Get("traceparent"))
-	require.Contains(t, carrier.Keys(), "traceparent")
 }
 
 func TestPublishStopsOnContextCanceled(t *testing.T) {

@@ -20,7 +20,7 @@ import (
 
 func TestRoutesExposeRoutePatternToMetricsBehindRequestCopies(t *testing.T) {
 	set := metrics.New("service-task")
-	routes := New(&fakeService{}, nil).Routes("secret")
+	routes := newTestHandler(&fakeService{}, nil).Routes()
 	copyRequest := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		routes.ServeHTTP(w, r.WithContext(r.Context()))
 	})
@@ -41,6 +41,14 @@ type fakeService struct {
 	query   domain.ListQuery
 	input   domain.TaskInput
 	move    domain.Move
+}
+
+func newTestHandler(svc TaskService, deps map[string]func(context.Context) error) *Handler {
+	return New(svc, deps, slog.Default(), &fakeCounter{}, "secret")
+}
+
+func newTestHandlerWithCounter(svc TaskService, deps map[string]func(context.Context) error, metrics counter) *Handler {
+	return New(svc, deps, slog.Default(), metrics, "secret")
 }
 
 func (f *fakeService) Create(ctx context.Context, userID int64, in domain.TaskInput) (*domain.Task, error) {
@@ -92,20 +100,21 @@ func ctxWithClaims() context.Context {
 }
 
 func TestListSuccess(t *testing.T) {
-	svc := &fakeService{tasks: []domain.Task{{ID: 1}}}
-	h := New(svc, nil)
+	svc := &fakeService{tasks: []domain.Task{{ID: 1, UserID: 42}}}
+	h := newTestHandler(svc, nil)
 	req := httptest.NewRequest(http.MethodGet, "/tasks", nil).WithContext(ctxWithClaims())
 	rec := httptest.NewRecorder()
 	h.List(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `"id":1`)
+	require.NotContains(t, rec.Body.String(), `user_id`)
 	require.Equal(t, 50, svc.limit)
 	require.Zero(t, svc.offset)
 }
 
 func TestListAcceptsOptionalPagination(t *testing.T) {
 	svc := &fakeService{}
-	h := New(svc, nil)
+	h := newTestHandler(svc, nil)
 	rec := httptest.NewRecorder()
 	h.List(rec, httptest.NewRequest(http.MethodGet, "/tasks?limit=20&offset=40", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -114,7 +123,7 @@ func TestListAcceptsOptionalPagination(t *testing.T) {
 }
 
 func TestListRejectsUnsafePagination(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	for _, query := range []string{"limit=0", "limit=101", "limit=x", "offset=-1"} {
 		rec := httptest.NewRecorder()
 		h.List(rec, httptest.NewRequest(http.MethodGet, "/tasks?"+query, nil).WithContext(ctxWithClaims()))
@@ -123,7 +132,7 @@ func TestListRejectsUnsafePagination(t *testing.T) {
 }
 
 func TestCreateRejectsOversizedPayload(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	body := bytes.NewBufferString(`{"title":"x","description":"` + string(bytes.Repeat([]byte("x"), maxPayloadBytes)) + `"}`)
 	rec := httptest.NewRecorder()
 	h.Create(rec, httptest.NewRequest(http.MethodPost, "/tasks", body).WithContext(ctxWithClaims()))
@@ -131,30 +140,31 @@ func TestCreateRejectsOversizedPayload(t *testing.T) {
 }
 
 func TestListError(t *testing.T) {
-	h := New(&fakeService{err: errors.New("boom")}, nil)
+	h := newTestHandler(&fakeService{err: errors.New("boom")}, nil)
 	rec := httptest.NewRecorder()
 	h.List(rec, httptest.NewRequest(http.MethodGet, "/tasks", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestListUnauthorized(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.List(rec, httptest.NewRequest(http.MethodGet, "/tasks", nil))
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 func TestCreateSuccess(t *testing.T) {
-	h := New(&fakeService{task: &domain.Task{ID: 1, Title: "x"}}, nil)
+	h := newTestHandler(&fakeService{task: &domain.Task{ID: 1, UserID: 42, Title: "x"}}, nil)
 	body := bytes.NewBufferString(`{"title":"x","description":"d"}`)
 	rec := httptest.NewRecorder()
 	h.Create(rec, httptest.NewRequest(http.MethodPost, "/tasks", body).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusCreated, rec.Code)
+	require.JSONEq(t, `{"id":1}`, rec.Body.String())
 }
 
 func TestCreatePassesStatus(t *testing.T) {
 	svc := &fakeService{task: &domain.Task{ID: 1, Title: "x"}}
-	h := New(svc, nil)
+	h := newTestHandler(svc, nil)
 	body := bytes.NewBufferString(`{"title":"x","description":"d","status":"doing"}`)
 	rec := httptest.NewRecorder()
 	h.Create(rec, httptest.NewRequest(http.MethodPost, "/tasks", body).WithContext(ctxWithClaims()))
@@ -163,126 +173,128 @@ func TestCreatePassesStatus(t *testing.T) {
 }
 
 func TestCreateInvalidJSON(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Create(rec, httptest.NewRequest(http.MethodPost, "/tasks", bytes.NewBufferString(`{`)).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestCreateInvalidInput(t *testing.T) {
-	h := New(&fakeService{err: domain.ErrInvalidInput}, nil)
+	h := newTestHandler(&fakeService{err: domain.ErrInvalidInput}, nil)
 	rec := httptest.NewRecorder()
 	h.Create(rec, httptest.NewRequest(http.MethodPost, "/tasks", bytes.NewBufferString(`{"title":""}`)).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestCreateInternalError(t *testing.T) {
-	h := New(&fakeService{err: errors.New("boom")}, nil)
+	h := newTestHandler(&fakeService{err: errors.New("boom")}, nil)
 	rec := httptest.NewRecorder()
 	h.Create(rec, httptest.NewRequest(http.MethodPost, "/tasks", bytes.NewBufferString(`{"title":"x"}`)).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestGetSuccess(t *testing.T) {
-	h := New(&fakeService{task: &domain.Task{ID: 1}}, nil)
+	h := newTestHandler(&fakeService{task: &domain.Task{ID: 1, UserID: 42}}, nil)
 	rec := httptest.NewRecorder()
 	h.Get(rec, httptest.NewRequest(http.MethodGet, "/tasks/1", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotContains(t, rec.Body.String(), `user_id`)
 }
 
 func TestGetInvalidID(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Get(rec, httptest.NewRequest(http.MethodGet, "/tasks/abc", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestGetNotFound(t *testing.T) {
-	h := New(&fakeService{err: domain.ErrNotFound}, nil)
+	h := newTestHandler(&fakeService{err: domain.ErrNotFound}, nil)
 	rec := httptest.NewRecorder()
 	h.Get(rec, httptest.NewRequest(http.MethodGet, "/tasks/1", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestGetInternalError(t *testing.T) {
-	h := New(&fakeService{err: errors.New("boom")}, nil)
+	h := newTestHandler(&fakeService{err: errors.New("boom")}, nil)
 	rec := httptest.NewRecorder()
 	h.Get(rec, httptest.NewRequest(http.MethodGet, "/tasks/1", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestUpdateSuccess(t *testing.T) {
-	h := New(&fakeService{task: &domain.Task{ID: 1}}, nil)
+	h := newTestHandler(&fakeService{task: &domain.Task{ID: 1, UserID: 42}}, nil)
 	rec := httptest.NewRecorder()
 	h.Update(rec, httptest.NewRequest(http.MethodPut, "/tasks/1", bytes.NewBufferString(`{"title":"x","status":"done"}`)).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusOK, rec.Code)
+	require.JSONEq(t, `{"id":1}`, rec.Body.String())
 }
 
 func TestUpdateInvalidJSON(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Update(rec, httptest.NewRequest(http.MethodPut, "/tasks/1", bytes.NewBufferString(`{`)).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestUpdateInvalidID(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Update(rec, httptest.NewRequest(http.MethodPut, "/tasks/abc", bytes.NewBufferString(`{}`)).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestUpdateInvalidInput(t *testing.T) {
-	h := New(&fakeService{err: domain.ErrInvalidInput}, nil)
+	h := newTestHandler(&fakeService{err: domain.ErrInvalidInput}, nil)
 	rec := httptest.NewRecorder()
 	h.Update(rec, httptest.NewRequest(http.MethodPut, "/tasks/1", bytes.NewBufferString(`{"title":""}`)).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestUpdateNotFound(t *testing.T) {
-	h := New(&fakeService{err: domain.ErrNotFound}, nil)
+	h := newTestHandler(&fakeService{err: domain.ErrNotFound}, nil)
 	rec := httptest.NewRecorder()
 	h.Update(rec, httptest.NewRequest(http.MethodPut, "/tasks/1", bytes.NewBufferString(`{"title":"x"}`)).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestUpdateInternalError(t *testing.T) {
-	h := New(&fakeService{err: errors.New("boom")}, nil)
+	h := newTestHandler(&fakeService{err: errors.New("boom")}, nil)
 	rec := httptest.NewRecorder()
 	h.Update(rec, httptest.NewRequest(http.MethodPut, "/tasks/1", bytes.NewBufferString(`{"title":"x"}`)).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestDeleteSuccess(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Delete(rec, httptest.NewRequest(http.MethodDelete, "/tasks/1", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusNoContent, rec.Code)
 }
 
 func TestDeleteInvalidID(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.Delete(rec, httptest.NewRequest(http.MethodDelete, "/tasks/abc", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestDeleteNotFound(t *testing.T) {
-	h := New(&fakeService{err: domain.ErrNotFound}, nil)
+	h := newTestHandler(&fakeService{err: domain.ErrNotFound}, nil)
 	rec := httptest.NewRecorder()
 	h.Delete(rec, httptest.NewRequest(http.MethodDelete, "/tasks/1", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestDeleteInternalError(t *testing.T) {
-	h := New(&fakeService{err: errors.New("boom")}, nil)
+	h := newTestHandler(&fakeService{err: errors.New("boom")}, nil)
 	rec := httptest.NewRecorder()
 	h.Delete(rec, httptest.NewRequest(http.MethodDelete, "/tasks/1", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestOperationsUnauthorized(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	cases := []struct {
 		name string
 		call func(http.ResponseWriter, *http.Request)
@@ -305,7 +317,7 @@ func TestOperationsUnauthorized(t *testing.T) {
 }
 
 func TestListNilBecomesEmpty(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
 	h.List(rec, httptest.NewRequest(http.MethodGet, "/tasks", nil).WithContext(ctxWithClaims()))
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -313,10 +325,11 @@ func TestListNilBecomesEmpty(t *testing.T) {
 }
 
 func TestHealthOK(t *testing.T) {
-	h := New(&fakeService{}, map[string]func(context.Context) error{
+	h := newTestHandler(&fakeService{}, map[string]func(context.Context) error{
 		"postgres": func(context.Context) error { return nil },
 		"rabbitmq": func(context.Context) error { return nil },
 	})
+
 	rec := httptest.NewRecorder()
 	h.Health(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -326,7 +339,7 @@ func TestHealthDegraded(t *testing.T) {
 	var logs bytes.Buffer
 	h := New(&fakeService{}, map[string]func(context.Context) error{
 		"rabbitmq": func(context.Context) error { return errors.New("down") },
-	}, slog.New(slog.NewJSONHandler(&logs, nil)))
+	}, slog.New(slog.NewJSONHandler(&logs, nil)), &fakeCounter{}, "secret")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(correlation.NewContext(context.Background(), "cid-health"))
 	h.Health(rec, req)
@@ -335,8 +348,8 @@ func TestHealthDegraded(t *testing.T) {
 }
 
 func TestRoutesAuth(t *testing.T) {
-	h := New(&fakeService{tasks: []domain.Task{}}, nil)
-	rr := h.Routes("secret")
+	h := newTestHandler(&fakeService{tasks: []domain.Task{}}, nil)
+	rr := h.Routes()
 
 	rec := httptest.NewRecorder()
 	rr.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/tasks", nil))
@@ -350,8 +363,8 @@ func TestRoutesAuth(t *testing.T) {
 }
 
 func TestRoutesHealth(t *testing.T) {
-	h := New(&fakeService{}, nil)
+	h := newTestHandler(&fakeService{}, nil)
 	rec := httptest.NewRecorder()
-	h.Routes("secret").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	h.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 }

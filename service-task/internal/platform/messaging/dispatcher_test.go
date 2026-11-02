@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -42,6 +43,10 @@ type fakeReliablePublisher struct{ err error }
 
 func (f fakeReliablePublisher) Publish(context.Context, string, string, []byte) error { return f.err }
 
+func newTestDispatcher(store OutboxStore, publisher ReliablePublisher, log *slog.Logger) *Dispatcher {
+	return NewDispatcher(store, publisher, log, &fakeCounter{})
+}
+
 type traceCapturingPublisher struct{ spanContext trace.SpanContext }
 
 func (p *traceCapturingPublisher) Publish(ctx context.Context, _ string, _ string, _ []byte) error {
@@ -51,7 +56,7 @@ func (p *traceCapturingPublisher) Publish(ctx context.Context, _ string, _ strin
 
 func TestDispatcherMarksConfirmedEventSent(t *testing.T) {
 	store := &fakeOutbox{event: &repository.OutboxEvent{ID: 7, EventID: "event", EventType: broker.RoutingKey, Payload: []byte(`{}`)}}
-	d := NewDispatcher(store, fakeReliablePublisher{}, slog.Default())
+	d := newTestDispatcher(store, fakeReliablePublisher{}, slog.Default())
 	require.NoError(t, d.DispatchOne(context.Background()))
 	require.Equal(t, int64(7), store.sent)
 	require.Zero(t, store.retried)
@@ -59,7 +64,7 @@ func TestDispatcherMarksConfirmedEventSent(t *testing.T) {
 
 func TestDispatcherRetriesRabbitFailure(t *testing.T) {
 	store := &fakeOutbox{event: &repository.OutboxEvent{ID: 7, EventID: "event", EventType: broker.RoutingKey, Payload: []byte(`{}`), Attempts: 2}}
-	d := NewDispatcher(store, fakeReliablePublisher{err: errors.New("rabbit down")}, slog.Default())
+	d := newTestDispatcher(store, fakeReliablePublisher{err: errors.New("rabbit down")}, slog.Default())
 	require.NoError(t, d.DispatchOne(context.Background()))
 	require.Equal(t, int64(7), store.retried)
 	require.Zero(t, store.sent)
@@ -88,7 +93,7 @@ func TestDispatcherRestoresPersistedTraceContext(t *testing.T) {
 	}}
 	publisher := &traceCapturingPublisher{}
 
-	require.NoError(t, NewDispatcher(store, publisher, slog.Default()).DispatchOne(context.Background()))
+	require.NoError(t, newTestDispatcher(store, publisher, slog.Default()).DispatchOne(context.Background()))
 	require.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", publisher.spanContext.TraceID().String())
 	require.NotEqual(t, "00f067aa0ba902b7", publisher.spanContext.SpanID().String())
 	require.False(t, publisher.spanContext.IsRemote())
@@ -102,24 +107,34 @@ func TestDispatcherRestoresPersistedTraceContext(t *testing.T) {
 }
 
 func TestDispatcherPropagatesStoreFailure(t *testing.T) {
-	d := NewDispatcher(&fakeOutbox{claimErr: errors.New("db down")}, fakeReliablePublisher{}, slog.Default())
+	d := newTestDispatcher(&fakeOutbox{claimErr: errors.New("db down")}, fakeReliablePublisher{}, slog.Default())
 	require.Error(t, d.DispatchOne(context.Background()))
 }
 
 func TestDispatcherPropagatesMarkAndRetryFailures(t *testing.T) {
 	event := &repository.OutboxEvent{ID: 7, EventID: "event", EventType: broker.RoutingKey}
-	require.Error(t, NewDispatcher(&fakeOutbox{event: event, markErr: errors.New("mark")}, fakeReliablePublisher{}, slog.Default()).DispatchOne(context.Background()))
-	require.Error(t, NewDispatcher(&fakeOutbox{event: event, retryErr: errors.New("retry")}, fakeReliablePublisher{err: errors.New("rabbit")}, slog.Default()).DispatchOne(context.Background()))
+	require.Error(t, newTestDispatcher(&fakeOutbox{event: event, markErr: errors.New("mark")}, fakeReliablePublisher{}, slog.Default()).DispatchOne(context.Background()))
+	require.Error(t, newTestDispatcher(&fakeOutbox{event: event, retryErr: errors.New("retry")}, fakeReliablePublisher{err: errors.New("rabbit")}, slog.Default()).DispatchOne(context.Background()))
 }
 
 func TestDispatcherRunStopsWithContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	NewDispatcher(&fakeOutbox{}, fakeReliablePublisher{}, slog.Default()).Run(ctx)
+	newTestDispatcher(&fakeOutbox{}, fakeReliablePublisher{}, slog.Default()).Run(ctx)
 }
 
 func TestDispatcherRunLogsFailureAndTicks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 550*time.Millisecond)
 	defer cancel()
-	NewDispatcher(&fakeOutbox{claimErr: errors.New("db down")}, fakeReliablePublisher{}, slog.Default()).Run(ctx)
+	newTestDispatcher(&fakeOutbox{claimErr: errors.New("db down")}, fakeReliablePublisher{}, slog.Default()).Run(ctx)
+}
+
+func TestDispatcherLogsPublishedOutboxEvent(t *testing.T) {
+	var logs bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logs, nil))
+	store := &fakeOutbox{event: &repository.OutboxEvent{ID: 7, EventID: "event-1", EventType: broker.RoutingKey, Payload: []byte(`{}`)}}
+	require.NoError(t, newTestDispatcher(store, fakeReliablePublisher{}, log).DispatchOne(context.Background()))
+	require.Contains(t, logs.String(), `"level":"INFO"`)
+	require.Contains(t, logs.String(), `"msg":"outbox_event_published"`)
+	require.Contains(t, logs.String(), `"event_id":"event-1"`)
 }

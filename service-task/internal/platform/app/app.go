@@ -56,16 +56,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) er
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
-	maxOpen := cfg.DBMaxOpenConns
-	if maxOpen <= 0 {
-		maxOpen = 25
-	}
-	maxIdle := cfg.DBMaxIdleConns
-	if maxIdle <= 0 {
-		maxIdle = 10
-	}
-	db.SetMaxOpenConns(maxOpen)
-	db.SetMaxIdleConns(maxIdle)
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(30 * time.Minute)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 
@@ -114,11 +106,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, deps Deps) er
 			}
 			return nil
 		},
-	}, log).WithTaskMetrics(taskMetrics)
+	}, log, taskMetrics, cfg.JWTSecret)
 
 	routes := http.NewServeMux()
 	routes.Handle("GET /metrics", metricSet.Handler())
-	routes.Handle("/", h.Routes(cfg.JWTSecret))
+	routes.Handle("/", h.Routes())
 	mux := otelhttp.NewHandler(middleware.Correlation(middleware.Logging(log)(metricSet.Middleware(routes))), "service-task.http")
 	srv := NewServer(cfg.Port, mux)
 

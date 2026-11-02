@@ -7,25 +7,21 @@ import (
 
 // Config agrupa as variáveis de ambiente do service-task.
 type Config struct {
-	Port           string
-	DatabaseURL    string
-	RabbitURL      string
-	JWTSecret      string
-	OTLPEndpoint   string
-	DBMaxOpenConns int
-	DBMaxIdleConns int
+	Port         string
+	DatabaseURL  string
+	RabbitURL    string
+	JWTSecret    string
+	OTLPEndpoint string
 }
 
 // Load lê a configuração do ambiente e exige JWT_SECRET.
 func Load() (Config, error) {
 	cfg := Config{
-		Port:           getEnv("PORT", "8080"),
-		DatabaseURL:    getEnv("DATABASE_URL", "postgres://task:task@localhost:5432/task?sslmode=disable"),
-		RabbitURL:      getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
-		JWTSecret:      os.Getenv("JWT_SECRET"),
-		OTLPEndpoint:   os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-		DBMaxOpenConns: 25,
-		DBMaxIdleConns: 10,
+		Port:         getEnv("PORT", "8080"),
+		DatabaseURL:  getEnv("DATABASE_URL", "postgres://task:task@localhost:5432/task?sslmode=disable"),
+		RabbitURL:    getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
+		JWTSecret:    os.Getenv("JWT_SECRET"),
+		OTLPEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 	}
 	if cfg.JWTSecret == "" {
 		return Config{}, errors.New("JWT_SECRET is required")

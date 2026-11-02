@@ -69,7 +69,7 @@ func (p *Publisher) Publish(ctx context.Context, eventID, routingKey string, bod
 		return err
 	}
 	headers := amqp.Table{broker.CorrelationIDHeader: correlation.FromContext(ctx)}
-	otel.GetTextMapPropagator().Inject(ctx, tableCarrier(headers))
+	otel.GetTextMapPropagator().Inject(ctx, broker.HeaderCarrier(headers))
 	msg := amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
@@ -115,26 +115,6 @@ func (p *Publisher) Publish(ctx context.Context, eventID, routingKey string, bod
 			return ctx.Err()
 		}
 	}
-}
-
-type tableCarrier amqp.Table
-
-// Get devolve o valor textual da chave no header AMQP.
-func (c tableCarrier) Get(key string) string {
-	value, _ := c[key].(string)
-	return value
-}
-
-// Set grava um valor textual no header AMQP.
-func (c tableCarrier) Set(key, value string) { c[key] = value }
-
-// Keys lista as chaves presentes no header AMQP.
-func (c tableCarrier) Keys() []string {
-	keys := make([]string, 0, len(c))
-	for key := range c {
-		keys = append(keys, key)
-	}
-	return keys
 }
 
 func recordSpanError(span trace.Span, err error) {

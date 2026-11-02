@@ -30,9 +30,9 @@ vem das claims; o cliente nunca o informa.
 | Método | Rota | Sucesso | Erros |
 |---|---|---|---|
 | `GET` | `/tasks?limit=&offset=&status=&priority=&overdue=&sort=&order=` | `200` com lista (vazia como `[]`) | `400` paginação ou filtro inválido, `401`, `500` |
-| `POST` | `/tasks` | `201` com a tarefa | `400` título/status/prioridade/prazo inválido, `401`, `413` payload > 1 MiB, `500` |
+| `POST` | `/tasks` | `201` com `{"id": number}` | `400` título/status/prioridade/prazo inválido, `401`, `413` payload > 1 MiB, `500` |
 | `GET` | `/tasks/{id}` | `200` com a tarefa | `400` id inválido, `401`, `404` quando não pertence ao usuário, `500` |
-| `PUT` | `/tasks/{id}` | `200` com a tarefa atualizada | `400`, `401`, `404`, `413`, `500` |
+| `PUT` | `/tasks/{id}` | `200` com `{"id": number}` | `400`, `401`, `404`, `413`, `500` |
 | `DELETE` | `/tasks/{id}` | `204` sem corpo | `400`, `401`, `404`, `500` |
 | `PATCH` | `/tasks/{id}/move` | `200` com a tarefa movida (`status` e `position`) | `400` status/vizinhos inválidos, `401`, `404`, `409` quadro desatualizado, `413`, `500` |
 | `GET` | `/tasks/{id}/history?limit=&offset=` | `200` com as alterações, mais recentes primeiro | `400` id/paginação inválidos, `401`, `404`, `500` |
@@ -49,6 +49,9 @@ intervalo se esgota. Vizinho inexistente, de outra coluna ou fora de ordem devol
 | `GET` | `/metrics` | `200` no formato Prometheus | — |
 
 Paginação: `limit` padrão `50`, máximo `100`; `offset` padrão `0`, mínimo `0`.
+
+`GET /tasks` e `GET /tasks/{id}` devolvem `id`, `title`, `description`, `status`, `priority`, `due_date`, `position`,
+`created_at` e `updated_at`. Nenhuma resposta pública de tarefa inclui `user_id`.
 
 Payload de criação/atualização:
 
@@ -121,7 +124,8 @@ A descrição registra apenas `{"field":"description"}`, sem os valores, para n�
 3. Grava a entrada `created` em `task_history`.
 4. Gera um `event_id` UUID v4 e o payload `{"task_id": ..., "title": ...}`.
 5. Insere em `task_outbox` o tipo `task.created`, o payload e o
-   `correlation_id` vindo do contexto HTTP.
+   `correlation_id` vindo do contexto HTTP. Também grava em `trace_context` o carrier W3C com `traceparent` e
+   `tracestate` disponíveis.
 6. Faz commit. Tarefa, histórico e evento são atômicos: se qualquer etapa falhar, nada é
    persistido.
 
@@ -192,6 +196,7 @@ CREATE TABLE task_outbox (
   event_type TEXT NOT NULL,
   payload JSONB NOT NULL,
   correlation_id TEXT NOT NULL DEFAULT '',
+  trace_context JSONB NOT NULL DEFAULT '{}',
   attempts INTEGER NOT NULL DEFAULT 0,
   available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

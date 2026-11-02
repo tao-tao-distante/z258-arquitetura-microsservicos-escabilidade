@@ -36,16 +36,8 @@ type Dispatcher struct {
 
 type counter interface{ Inc(...string) }
 
-type noopCounter struct{}
-
-func (noopCounter) Inc(...string) {}
-
-// NewDispatcher cria o dispatcher com store, publisher e logger informados.
-func NewDispatcher(store OutboxStore, publisher ReliablePublisher, log *slog.Logger, counters ...counter) *Dispatcher {
-	metrics := counter(noopCounter{})
-	if len(counters) > 0 && counters[0] != nil {
-		metrics = counters[0]
-	}
+// NewDispatcher cria o dispatcher com suas dependências.
+func NewDispatcher(store OutboxStore, publisher ReliablePublisher, log *slog.Logger, metrics counter) *Dispatcher {
 	return &Dispatcher{store: store, publisher: publisher, log: log, metrics: metrics}
 }
 
@@ -87,12 +79,14 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) error {
 			return fmt.Errorf("schedule retry: %w", retryErr)
 		}
 		d.metrics.Inc("retry")
+		platformlogger.WithContext(eventCtx, d.log).WarnContext(eventCtx, "outbox_event_retry_scheduled", "event_id", event.EventID, "attempts", event.Attempts)
 		return nil
 	}
 	if err := d.store.MarkOutboxSent(eventCtx, event.ID); err != nil {
 		d.metrics.Inc("mark_error")
 		return fmt.Errorf("mark event sent: %w", err)
 	}
+	platformlogger.WithContext(eventCtx, d.log).InfoContext(eventCtx, "outbox_event_published", "event_id", event.EventID, "event_type", event.EventType)
 	d.metrics.Inc("sent")
 	return nil
 }
